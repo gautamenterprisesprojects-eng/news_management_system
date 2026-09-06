@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "echo Skipping dependency installation for static frontend",
+  "buildCommand": "",
+  "outputDirectory": "public"
+}

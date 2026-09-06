@@ -1,0 +1,497 @@
+/* ============================================================
+   i18n — Bilingual Translation System (Hindi + English)
+   Every user-visible string in the app is defined here.
+   ============================================================ */
+
+const translations = {
+    en: {
+        // Common
+        'common.loading': 'Loading...',
+        'common.error': 'Error',
+        'common.success': 'Success',
+        'common.cancel': 'Cancel',
+        'common.save': 'Save',
+        'common.delete': 'Delete',
+        'common.edit': 'Edit',
+        'common.close': 'Close',
+        'common.confirm': 'Confirm',
+        'common.yes': 'Yes',
+        'common.no': 'No',
+        'common.back': 'Back',
+        'common.submit': 'Submit',
+        'common.search': 'Search...',
+        'common.no_data': 'No data available',
+        'common.retry': 'Retry',
+        'common.logout': 'Logout',
+        'common.profile': 'Profile',
+        'common.settings': 'Settings',
+        'common.read_more': 'Read Full Article',
+        'common.required': 'Required',
+        'common.nav_admin_panel': 'Admin Panel',
+        'common.nav_reporter_panel': 'Reporter Panel',
+        'common.nav_editor_panel': 'Editor Panel',
+        'common.nav_operator_panel': 'Operator Panel',
+        'common.all_reporters': 'All Reporters',
+
+        // Branding
+        'brand.name': 'THE CLIFF NEWS',
+        'brand.tagline': 'News Management System',
+
+        // Login
+        'login.title': 'Login',
+        'login.subtitle': 'The Cliff NEWS • News Management System',
+        'login.username': 'Username',
+        'login.username_placeholder': 'Enter your username',
+        'login.password': 'Password',
+        'login.password_placeholder': 'Enter your password',
+        'login.btn': 'Sign In',
+        'login.error_credentials': 'Invalid username or password',
+        'login.error_inactive': 'Account deactivated. Contact admin.',
+
+        // Reporter Panel
+        'reporter.title': 'The Cliff NEWS • Reporter',
+        'reporter.subtitle': 'Submit and track your news',
+        'reporter.nav_submit': 'Submit',
+        'reporter.nav_my_news': 'My News',
+        'reporter.nav_approved': 'Approved',
+        'reporter.nav_rejected': 'Rejected',
+        'reporter.approved_news': 'Approved News',
+        'reporter.rejected_news': 'Rejected News',
+        'reporter.no_approved': 'No approved news yet',
+        'reporter.no_rejected': 'No rejected news',
+        'reporter.submit_news': 'Submit News',
+        'reporter.headline': 'Headline',
+        'reporter.headline_placeholder': 'Enter news headline',
+        'reporter.body': 'News Body',
+        'reporter.body_placeholder': 'Write the full news article...',
+        'reporter.category': 'Category',
+        'reporter.category_placeholder': 'Select category',
+        'reporter.tags': 'Tags',
+        'reporter.tags_placeholder': 'politics, crime, local (comma separated)',
+        'reporter.city': 'City / Location',
+        'reporter.city_placeholder': 'Enter city name',
+        'reporter.image': 'Photo / Image',
+        'reporter.image_upload': 'Tap to upload image',
+        'reporter.image_upload_hint': 'JPG, PNG, WebP (max 10MB)',
+        'reporter.submit_btn': 'Submit News',
+        'reporter.submitting': 'Submitting...',
+        'reporter.submit_success': 'News submitted successfully!',
+        'reporter.my_submissions': 'My Submissions',
+        'reporter.no_news': 'No news submitted yet',
+        'reporter.cat_politics': 'Politics',
+        'reporter.cat_crime': 'Crime',
+        'reporter.cat_sports': 'Sports',
+        'reporter.cat_business': 'Business',
+        'reporter.cat_entertainment': 'Entertainment',
+        'reporter.cat_technology': 'Technology',
+        'reporter.cat_health': 'Health',
+        'reporter.cat_education': 'Education',
+        'reporter.cat_local': 'Local',
+        'reporter.cat_national': 'National',
+        'reporter.cat_international': 'International',
+        'reporter.cat_other': 'Other',
+
+        // Editor Panel
+        'editor.title': 'The Cliff NEWS • Editor',
+        'editor.subtitle': 'Review, rewrite and forward news',
+        'editor.raw_tab': 'Raw News',
+        'editor.processed_tab': 'Processed',
+        'editor.rejected_tab': 'Rejected',
+        'editor.published_tab': 'Published',
+        'editor.raw_title': 'Raw News',
+        'editor.processed_title': 'Processed News',
+        'editor.no_raw': 'No raw news to process',
+        'editor.no_processed': 'No processed news',
+        'editor.rewrite_btn': 'Rewrite with AI',
+        'editor.rewrite_hindi_btn': '⚡ AI Rewrite',
+        'editor.rewrite_english_btn': '🌐 English Rewrite',
+        'editor.rewrite_custom_btn': '⚙️ Custom Rewrite',
+        'editor.custom_modal_title': 'Custom AI Rewrite Settings',
+        'editor.word_limit_title': 'Target Word Count',
+        'editor.subheadings_title': 'Number of Subheadings',
+        'editor.caption_words_title': 'Image Caption Length',
+        'editor.language_title': 'Output Language',
+        'editor.apply_rewrite_btn': '🚀 Rewrite with Selected Settings',
+        'editor.retry_btn': '🔄 Retry AI Rewrite',
+        'editor.rewrite_failed_msg': 'AI rewrite failed. Please click "Retry AI Rewrite" below.',
+        'editor.process_card_btn': '⚡ AI Rewrite',
+        'editor.forward_card_btn': '📤 Forward',
+        'editor.rewriting': 'AI is rewriting...',
+        'editor.rewrite_done': 'AI rewrite complete!',
+        'editor.approve_btn': 'Approve',
+        'editor.forward_btn': 'Forward to Operators',
+        'editor.forward_success': 'News forwarded to operators!',
+        'editor.original': 'Original',
+        'editor.rewritten': 'AI Rewritten',
+        'editor.by_reporter': 'By',
+        'editor.approve_success': 'News approved and processed!',
+        'editor.status_ai_done': 'AI Done',
+        'editor.status_raw': 'RAW',
+        'editor.status_processing': 'PROCESSING',
+        'editor.status_processed': 'PROCESSED',
+        'editor.status_forwarded': 'FORWARDED',
+        'editor.status_rejected': 'REJECTED',
+        'editor.status_published': 'PUBLISHED',
+        'editor.reject_btn': 'Reject',
+        'editor.english_btn': 'English',
+
+        // Operator Panel
+        'operator.title': 'The Cliff NEWS • Operator',
+        'operator.subtitle': 'Copy and publish news',
+        'operator.nav_news': 'News',
+        'operator.no_news': 'No forwarded news available',
+        'operator.copy_text': 'Copy Text',
+        'operator.copy_headline': 'Copy Headline',
+        'operator.quick_copy_text': '📋 Copy',
+        'operator.quick_copy_headline': '📝 Headline',
+        'operator.download_image': 'Download Image',
+        'operator.copied': 'Copied!',
+        'operator.copied_by': 'Copied by',
+        'operator.copy_success': 'Text copied to clipboard!',
+        'operator.image_preview': 'Image Preview',
+
+        // Admin Panel
+        'admin.title': 'Admin Panel',
+        'admin.subtitle': 'Manage users and settings',
+        'admin.nav_dashboard': 'Dashboard',
+        'admin.nav_users': 'Users',
+        'admin.nav_settings': 'Settings',
+        'admin.dashboard': 'Dashboard',
+        'admin.total_reporters': 'Reporters',
+        'admin.total_editors': 'Editors',
+        'admin.total_operators': 'Operators',
+        'admin.total_news': 'Total News',
+        'admin.news_raw': 'Raw',
+        'admin.news_processed': 'Processed',
+        'admin.news_forwarded': 'Forwarded',
+        'admin.user_management': 'User Management',
+        'admin.create_user': 'Create User',
+        'admin.all_roles': 'All',
+        'admin.reporters': 'Reporters',
+        'admin.editors': 'Editors',
+        'admin.operators': 'Operators',
+        'admin.username': 'Username',
+        'admin.username_placeholder': 'Enter username (min 3 chars)',
+        'admin.password': 'Password',
+        'admin.password_placeholder': 'Enter password (min 4 chars)',
+        'admin.full_name': 'Full Name',
+        'admin.full_name_placeholder': 'Enter full display name',
+        'admin.role': 'Role',
+        'admin.select_role': 'Select role',
+        'admin.role_reporter': 'Reporter',
+        'admin.role_editor': 'Editor',
+        'admin.role_operator': 'Operator',
+        'admin.create_btn': 'Create User',
+        'admin.creating': 'Creating...',
+        'admin.create_success': 'User created successfully!',
+        'admin.no_users': 'No users found',
+        'admin.active': 'Active',
+        'admin.inactive': 'Inactive',
+        'admin.deactivate': 'Deactivate',
+        'admin.activate': 'Activate',
+        'admin.deactivate_confirm': 'Are you sure you want to deactivate this user?',
+        'admin.settings_title': 'System Settings',
+        'admin.ai_provider': 'AI Provider',
+        'admin.gemini_key': 'Gemini API Key',
+        'admin.gemini_key_placeholder': 'Enter Gemini API key',
+        'admin.deepseek_key': 'DeepSeek API Key',
+        'admin.deepseek_key_placeholder': 'Enter DeepSeek API key',
+        'admin.ai_prompt': 'AI Rewrite Prompt',
+        'admin.save_settings': 'Save Settings',
+        'admin.settings_saved': 'Settings saved!',
+        'admin.edit_user': 'Edit User',
+        'admin.update_btn': 'Update',
+        'admin.new_password': 'New Password (leave blank to keep)',
+        'admin.update_success': 'User updated!',
+
+        // Profile
+        'profile.settings': 'Profile Settings',
+        'profile.title': 'Profile Settings',
+        'profile.subtitle': 'Manage your personal information',
+        'profile.photo': 'Profile Photo',
+        'profile.upload_photo': 'Upload New Photo',
+        'profile.full_name': 'Full Name',
+        'profile.name_hi': 'Name (Hindi)',
+        'profile.name_en': 'Name (English)',
+        'profile.email': 'Email Address',
+        'profile.phone': 'Phone Number',
+        'profile.city': 'City / Place',
+        'profile.post': 'Designation / Post',
+        'profile.save': 'Save Changes',
+        'profile.saving': 'Saving...',
+        'profile.success': 'Profile updated successfully!',
+    },
+
+    hi: {
+        // Common
+        'common.loading': 'लोड हो रहा है...',
+        'common.error': 'त्रुटि',
+        'common.success': 'सफल',
+        'common.cancel': 'रद्द करें',
+        'common.save': 'सहेजें',
+        'common.delete': 'हटाएं',
+        'common.edit': 'संपादित करें',
+        'common.close': 'बंद करें',
+        'common.confirm': 'पुष्टि करें',
+        'common.yes': 'हाँ',
+        'common.no': 'नहीं',
+        'common.back': 'वापस',
+        'common.submit': 'जमा करें',
+        'common.search': 'खोजें...',
+        'common.no_data': 'कोई डेटा उपलब्ध नहीं',
+        'common.retry': 'पुनः प्रयास',
+        'common.logout': 'लॉगआउट',
+        'common.profile': 'प्रोफाइल',
+        'common.settings': 'सेटिंग्स',
+        'common.read_more': 'पूरा लेख पढ़ें',
+        'common.required': 'आवश्यक',
+        'common.nav_admin_panel': 'एडमिन पैनल',
+        'common.nav_reporter_panel': 'रिपोर्टर पैनल',
+        'common.nav_editor_panel': 'संपादक पैनल',
+        'common.nav_operator_panel': 'ऑपरेटर पैनल',
+        'common.all_reporters': 'सभी रिपोर्टर',
+
+        // Login
+        'login.title': 'लॉगिन',
+        'login.subtitle': 'The Cliff NEWS • समाचार प्रबंधन प्रणाली',
+        'login.username': 'यूजरनेम',
+        'login.username_placeholder': 'अपना यूजरनेम दर्ज करें',
+        'login.password': 'पासवर्ड',
+        'login.password_placeholder': 'अपना पासवर्ड दर्ज करें',
+        'login.btn': 'साइन इन करें',
+        'login.error_credentials': 'गलत यूजरनेम या पासवर्ड',
+        'login.error_inactive': 'खाता निष्क्रिय है। एडमिन से संपर्क करें।',
+
+        // Reporter Panel
+        'reporter.title': 'The Cliff NEWS • रिपोर्टर',
+        'reporter.subtitle': 'समाचार जमा करें और ट्रैक करें',
+        'reporter.nav_submit': 'जमा करें',
+        'reporter.nav_my_news': 'मेरी खबरें',
+        'reporter.nav_approved': 'स्वीकृत',
+        'reporter.nav_rejected': 'अस्वीकृत',
+        'reporter.approved_news': 'स्वीकृत खबरें',
+        'reporter.rejected_news': 'अस्वीकृत खबरें',
+        'reporter.no_approved': 'कोई स्वीकृत खबर नहीं',
+        'reporter.no_rejected': 'कोई अस्वीकृत खबर नहीं',
+        'reporter.submit_news': 'समाचार जमा करें',
+        'reporter.headline': 'शीर्षक',
+        'reporter.headline_placeholder': 'समाचार का शीर्षक लिखें',
+        'reporter.body': 'समाचार विवरण',
+        'reporter.body_placeholder': 'पूरा समाचार लिखें...',
+        'reporter.category': 'श्रेणी',
+        'reporter.category_placeholder': 'श्रेणी चुनें',
+        'reporter.tags': 'टैग',
+        'reporter.tags_placeholder': 'राजनीति, अपराध, स्थानीय (अल्पविराम से अलग)',
+        'reporter.city': 'शहर / स्थान',
+        'reporter.city_placeholder': 'शहर का नाम लिखें',
+        'reporter.image': 'फोटो / छवि',
+        'reporter.image_upload': 'छवि अपलोड करने के लिए टैप करें',
+        'reporter.image_upload_hint': 'JPG, PNG, WebP (अधिकतम 10MB)',
+        'reporter.submit_btn': 'समाचार जमा करें',
+        'reporter.submitting': 'जमा हो रहा है...',
+        'reporter.submit_success': 'समाचार सफलतापूर्वक जमा हो गया!',
+        'reporter.my_submissions': 'मेरे द्वारा जमा',
+        'reporter.no_news': 'अभी तक कोई समाचार जमा नहीं किया',
+        'reporter.cat_politics': 'राजनीति',
+        'reporter.cat_crime': 'अपराध',
+        'reporter.cat_sports': 'खेल',
+        'reporter.cat_business': 'व्यापार',
+        'reporter.cat_entertainment': 'मनोरंजन',
+        'reporter.cat_technology': 'तकनीक',
+        'reporter.cat_health': 'स्वास्थ्य',
+        'reporter.cat_education': 'शिक्षा',
+        'reporter.cat_local': 'स्थानीय',
+        'reporter.cat_national': 'राष्ट्रीय',
+        'reporter.cat_international': 'अंतरराष्ट्रीय',
+        'reporter.cat_other': 'अन्य',
+
+        // Editor Panel
+        'editor.title': 'The Cliff NEWS • संपादक',
+        'editor.subtitle': 'समाचार की समीक्षा, पुनर्लेखन और अग्रेषित करें',
+        'editor.raw_tab': 'कच्ची खबरें',
+        'editor.processed_tab': 'प्रोसेस्ड खबरें',
+        'editor.rejected_tab': 'रिजेक्टेड',
+        'editor.published_tab': 'प्रकाशित',
+        'editor.raw_title': 'कच्ची खबरें',
+        'editor.processed_title': 'प्रोसेस्ड खबरें',
+        'editor.no_raw': 'प्रोसेस करने के लिए कोई कच्ची खबर नहीं',
+        'editor.no_processed': 'कोई प्रोसेस्ड खबर नहीं',
+        'editor.rewrite_btn': 'AI से पुनर्लेखन',
+        'editor.rewrite_hindi_btn': '⚡ AI री-राइट',
+        'editor.rewrite_english_btn': '🌐 English में Rewrite',
+        'editor.rewrite_custom_btn': '⚙️ कस्टम री-राइट',
+        'editor.custom_modal_title': 'कस्टम AI री-राइट सेटिंग्स',
+        'editor.word_limit_title': 'खबर की शब्द सीमा',
+        'editor.subheadings_title': 'सब हेडिंग संख्या',
+        'editor.caption_words_title': 'इमेज कैप्शन शब्द सीमा',
+        'editor.language_title': 'आउटपुट भाषा',
+        'editor.apply_rewrite_btn': '🚀 इस सेटिंग से AI री-राइट करें',
+        'editor.retry_btn': '🔄 फिर से AI री-राइट करें',
+        'editor.rewrite_failed_msg': 'AI पुनर्लेखन विफल रहा। कृपया "फिर से AI री-राइट करें" दबाएं।',
+        'editor.process_card_btn': '⚡ AI री-राइट',
+        'editor.forward_card_btn': '📤 फॉरवर्ड करें',
+        'editor.rewriting': 'AI पुनर्लेखन कर रहा है...',
+        'editor.rewrite_done': 'AI पुनर्लेखन पूरा!',
+        'editor.approve_btn': 'स्वीकृत करें',
+        'editor.forward_btn': 'ऑपरेटर को भेजें',
+        'editor.forward_success': 'खबर ऑपरेटर को भेज दी गई!',
+        'editor.original': 'मूल',
+        'editor.rewritten': 'AI पुनर्लिखित',
+        'editor.by_reporter': 'द्वारा',
+        'editor.approve_success': 'खबर स्वीकृत और प्रोसेस्ड!',
+        'editor.status_ai_done': 'AI पूर्ण',
+        'editor.status_raw': 'रॉ',
+        'editor.status_processing': 'प्रोसेसिंग',
+        'editor.status_processed': 'प्रोसेस्ड',
+        'editor.status_forwarded': 'अग्रेषित',
+        'editor.status_rejected': 'अस्वीकृत',
+        'editor.status_published': 'प्रकाशित',
+        'editor.reject_btn': 'रिजेक्ट',
+        'editor.english_btn': 'English',
+
+        // Operator Panel
+        'operator.title': 'The Cliff NEWS • ऑपरेटर',
+        'operator.subtitle': 'समाचार कॉपी करें और प्रकाशित करें',
+        'operator.nav_news': 'समाचार',
+        'operator.no_news': 'कोई अग्रेषित समाचार उपलब्ध नहीं',
+        'operator.copy_text': 'टेक्स्ट कॉपी करें',
+        'operator.copy_headline': 'शीर्षक कॉपी करें',
+        'operator.quick_copy_text': '📋 कॉपी',
+        'operator.quick_copy_headline': '📝 शीर्षक',
+        'operator.download_image': 'छवि डाउनलोड करें',
+        'operator.copied': 'कॉपी हो गया!',
+        'operator.copied_by': 'कॉपी किया',
+        'operator.copy_success': 'टेक्स्ट क्लिपबोर्ड पर कॉपी हो गया!',
+        'operator.image_preview': 'छवि प्रीव्यू',
+
+        // Admin Panel
+        'admin.title': 'The Cliff NEWS • एडमिन',
+        'admin.subtitle': 'यूजर और सेटिंग्स प्रबंधित करें',
+        'admin.nav_dashboard': 'डैशबोर्ड',
+        'admin.nav_users': 'यूजर',
+        'admin.nav_settings': 'सेटिंग्स',
+        'admin.dashboard': 'डैशबोर्ड',
+        'admin.total_reporters': 'रिपोर्टर',
+        'admin.total_editors': 'संपादक',
+        'admin.total_operators': 'ऑपरेटर',
+        'admin.total_news': 'कुल समाचार',
+        'admin.news_raw': 'कच्ची',
+        'admin.news_processed': 'प्रोसेस्ड',
+        'admin.news_forwarded': 'अग्रेषित',
+        'admin.user_management': 'यूजर प्रबंधन',
+        'admin.create_user': 'नया यूजर बनाएं',
+        'admin.all_roles': 'सभी',
+        'admin.reporters': 'रिपोर्टर',
+        'admin.editors': 'संपादक',
+        'admin.operators': 'ऑपरेटर',
+        'admin.username': 'यूजरनेम',
+        'admin.username_placeholder': 'यूजरनेम दर्ज करें (न्यूनतम 3 अक्षर)',
+        'admin.password': 'पासवर्ड',
+        'admin.password_placeholder': 'पासवर्ड दर्ज करें (न्यूनतम 4 अक्षर)',
+        'admin.full_name': 'पूरा नाम',
+        'admin.full_name_placeholder': 'पूरा प्रदर्शन नाम दर्ज करें',
+        'admin.role': 'भूमिका',
+        'admin.select_role': 'भूमिका चुनें',
+        'admin.role_reporter': 'रिपोर्टर',
+        'admin.role_editor': 'संपादक',
+        'admin.role_operator': 'ऑपरेटर',
+        'admin.create_btn': 'यूजर बनाएं',
+        'admin.creating': 'बन रहा है...',
+        'admin.create_success': 'यूजर सफलतापूर्वक बन गया!',
+        'admin.no_users': 'कोई यूजर नहीं मिला',
+        'admin.active': 'सक्रिय',
+        'admin.inactive': 'निष्क्रिय',
+        'admin.deactivate': 'निष्क्रिय करें',
+        'admin.activate': 'सक्रिय करें',
+        'admin.deactivate_confirm': 'क्या आप वाकई इस यूजर को निष्क्रिय करना चाहते हैं?',
+        'admin.settings_title': 'सिस्टम सेटिंग्स',
+        'admin.ai_provider': 'AI प्रदाता',
+        'admin.gemini_key': 'Gemini API कुंजी',
+        'admin.gemini_key_placeholder': 'Gemini API कुंजी दर्ज करें',
+        'admin.deepseek_key': 'DeepSeek API कुंजी',
+        'admin.deepseek_key_placeholder': 'DeepSeek API कुंजी दर्ज करें',
+        'admin.ai_prompt': 'AI पुनर्लेखन प्रॉम्प्ट',
+        'admin.save_settings': 'सेटिंग्स सहेजें',
+        'admin.settings_saved': 'सेटिंग्स सहेज दी गई!',
+        'admin.edit_user': 'उपयोगकर्ता संपादित करें',
+        'admin.update_btn': 'अपडेट करें',
+        'admin.new_password': 'नया पासवर्ड (रखने के लिए खाली छोड़ें)',
+        'admin.update_success': 'उपयोगकर्ता अपडेट किया गया!',
+
+        // Profile
+        'profile.settings': 'प्रोफ़ाइल सेटिंग्स',
+        'profile.title': 'प्रोफ़ाइल सेटिंग्स',
+        'profile.subtitle': 'अपनी व्यक्तिगत जानकारी प्रबंधित करें',
+        'profile.photo': 'प्रोफ़ाइल फ़ोटो',
+        'profile.upload_photo': 'नया फ़ोटो अपलोड करें',
+        'profile.full_name': 'पूरा नाम',
+        'profile.name_hi': 'नाम (हिंदी)',
+        'profile.name_en': 'नाम (अंग्रेज़ी)',
+        'profile.email': 'ईमेल पता',
+        'profile.phone': 'फ़ोन नंबर',
+        'profile.city': 'शहर / स्थान',
+        'profile.post': 'पदनाम / पद',
+        'profile.save': 'परिवर्तन सहेजें',
+        'profile.saving': 'सहेजा जा रहा है...',
+        'profile.success': 'प्रोफ़ाइल सफलतापूर्वक अपडेट की गई!',
+    }
+};
+
+/**
+ * Apply translations to all elements with data-i18n attribute
+ */
+function applyLanguage() {
+    const lang = localStorage.getItem('nms_lang') || 'hi';
+
+    // Update body class for font
+    document.body.classList.toggle('lang-hi', lang === 'hi');
+
+    // Translate text content
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (translations[lang] && translations[lang][key]) {
+            el.textContent = translations[lang][key];
+        }
+    });
+
+    // Translate placeholders
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-i18n-placeholder');
+        if (translations[lang] && translations[lang][key]) {
+            el.placeholder = translations[lang][key];
+        }
+    });
+}
+
+/**
+ * Get a single translation string
+ */
+function t(key) {
+    const lang = localStorage.getItem('nms_lang') || 'hi';
+    return (translations[lang] && translations[lang][key]) || key;
+}
+
+/**
+ * Toggle language between Hindi and English
+ */
+function toggleLanguage() {
+    const current = localStorage.getItem('nms_lang') || 'hi';
+    const newLang = current === 'hi' ? 'en' : 'hi';
+    localStorage.setItem('nms_lang', newLang);
+    applyLanguage();
+    // Update toggle UI
+    document.querySelectorAll('.lang-toggle-option').forEach(el => {
+        el.classList.toggle('active', el.dataset.lang === newLang);
+    });
+}
+
+/**
+ * Set language explicitly
+ */
+function setLanguage(lang) {
+    localStorage.setItem('nms_lang', lang);
+    applyLanguage();
+    document.querySelectorAll('.lang-toggle-option').forEach(el => {
+        el.classList.toggle('active', el.dataset.lang === lang);
+    });
+}

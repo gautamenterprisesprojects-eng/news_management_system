@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+uploads/
+public/uploads/
+.vercel/
+*.log
+scratch/
+scratch_*.js
