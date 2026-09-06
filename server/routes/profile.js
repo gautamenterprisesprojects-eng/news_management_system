@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { avatarsDir, resolveUpload } = require('../storage');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -9,7 +10,7 @@ const { verifyToken } = require('../middleware/auth');
 // Configure multer for avatar uploads
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const dir = path.join(__dirname, '..', '..', 'public', 'uploads', 'avatars');
+        const dir = avatarsDir;
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
@@ -65,7 +66,7 @@ router.put('/', verifyToken, upload.single('avatar'), (req, res) => {
             // Delete old avatar if exists
             const oldUser = queryGet("SELECT avatar_path FROM users WHERE id = ?", [req.user.id]);
             if (oldUser && oldUser.avatar_path) {
-                const oldPath = path.join(__dirname, '..', '..', 'public', oldUser.avatar_path);
+                const oldPath = resolveUpload(oldUser.avatar_path);
                 if (fs.existsSync(oldPath)) {
                     fs.unlinkSync(oldPath);
                 }

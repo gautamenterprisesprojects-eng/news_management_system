@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { uploadsDir, resolveUpload } = require('../storage');
 const multer = require('multer');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
@@ -9,7 +10,7 @@ const { verifyToken, requireRole } = require('../middleware/auth');
 // Multer config for image uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, path.join(__dirname, '..', '..', 'uploads'));
+        cb(null, uploadsDir);
     },
     filename: (req, file, cb) => {
         const ext = path.extname(file.originalname);
@@ -149,7 +150,7 @@ router.post('/photo', upload.single('photo'), (req, res) => {
         const oldUser = queryGet('SELECT avatar_path FROM users WHERE id = ?', [req.user.id]);
         if (oldUser && oldUser.avatar_path) {
             const fs = require('fs');
-            const oldFullPath = path.join(__dirname, '..', '..', 'uploads', path.basename(oldUser.avatar_path));
+            const oldFullPath = resolveUpload(oldUser.avatar_path);
             if (fs.existsSync(oldFullPath)) {
                 try { fs.unlinkSync(oldFullPath); } catch (e) { /* ignore */ }
             }

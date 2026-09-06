@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { resolveUpload } = require('../storage');
 const path = require('path');
 const fs = require('fs');
 const archiver = require('archiver');
@@ -174,7 +175,7 @@ router.get('/news/:id/images/zip', (req, res) => {
         archive.pipe(res);
 
         images.forEach((img, idx) => {
-            const filePath = path.join(__dirname, '..', '..', img.image_path.replace(/^\//, ''));
+            const filePath = resolveUpload(img.image_path);
             if (fs.existsSync(filePath)) {
                 const ext = path.extname(filePath);
                 archive.file(filePath, { name: `image-${idx + 1}${ext}` });
@@ -222,7 +223,7 @@ router.get('/news/:id/image', (req, res) => {
             return res.status(404).json({ error: 'Image not found.' });
         }
 
-        const filePath = path.join(__dirname, '..', '..', news.image_path.replace(/^\//, ''));
+        const filePath = resolveUpload(news.image_path);
         if (!fs.existsSync(filePath)) {
             return res.status(404).json({ error: 'Image file not found on disk.' });
         }

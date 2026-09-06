@@ -2,6 +2,9 @@ const jwt = require('jsonwebtoken');
 const { queryGet } = require('../db/init');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_change_me';
+if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32)) {
+    throw new Error('Set JWT_SECRET to at least 32 random characters in production.');
+}
 
 /**
  * Middleware: Verify JWT token from Authorization header

@@ -6,6 +6,7 @@ const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
 const { initDatabase } = require('./db/init');
+const { uploadsDir, avatarsDir, resolveUpload } = require('./storage');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,11 +23,20 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '30d' }));
 
 // Serve uploaded images
-const uploadsDir = path.join(__dirname, '..', 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
+fs.mkdirSync(avatarsDir, { recursive: true });
+app.use('/uploads/avatars', express.static(avatarsDir));
 app.use('/uploads', express.static(uploadsDir));
+app.get('/api/health', (req, res) => {
+    try {
+        require('./db/init').queryGet('SELECT 1 AS ok');
+        res.json({ status: 'ok' });
+    } catch {
+        res.status(503).json({ status: 'unavailable' });
+    }
+});
 
 // ============================================================
 // API ROUTES
@@ -49,24 +59,28 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/public', publicRoutes);
 
 // Background cron job: every hour, delete news older than 48 hours
-setInterval(() => {
+if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
     try {
         const { getDb, queryAll, queryRun } = require('./db/init');
         console.log('Running 48h data cleanup job...');
         // Find news older than 48 hours
-        const oldNews = queryAll("SELECT id, image_path FROM news WHERE datetime(created_at) < datetime('now', '-48 hours')");
+        const oldNews = queryAll("SELECT id, image_path FROM news WHERE datetime(created_at) < datetime('now', 'localtime', '-48 hours')");
         for (const article of oldNews) {
             // Delete associated image file
-            if (article.image_path) {
-                const fs = require('fs');
-                const fullPath = path.join(__dirname, '..', 'public', article.image_path);
+            const imagePaths = new Set(queryAll('SELECT image_path FROM news_images WHERE news_id = ?', [article.id]).map(row => row.image_path));
+            if (article.image_path) imagePaths.add(article.image_path);
+            for (const imagePath of imagePaths) {
+                const fullPath = resolveUpload(imagePath);
                 if (fs.existsSync(fullPath)) {
                     try { fs.unlinkSync(fullPath); } catch (e) { console.error('Error deleting image:', e); }
                 }
             }
             // Delete from database
-            queryRun("DELETE FROM news WHERE id = ?", [article.id]);
-            queryRun("DELETE FROM news_copies WHERE news_id = ?", [article.id]);
+            getDb().transaction(() => {
+                queryRun("DELETE FROM news_images WHERE news_id = ?", [article.id]);
+                queryRun("DELETE FROM news_copies WHERE news_id = ?", [article.id]);
+                queryRun("DELETE FROM news WHERE id = ?", [article.id]);
+            })();
         }
         if (oldNews.length > 0) {
             console.log(`Cleaned up ${oldNews.length} old news records.`);
@@ -82,6 +96,8 @@ setInterval(() => {
 app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
         res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+    } else {
+        res.status(404).json({ error: 'Endpoint not found.' });
     }
 });
 
@@ -102,10 +118,18 @@ app.use((err, req, res, next) => {
 async function start() {
     try {
         await initDatabase();
-        app.listen(PORT, () => {
-            console.log(`🚀 News Management System running at http://localhost:${PORT}`);
-            console.log(`   Default admin login: admin / admin123`);
+        const server = app.listen(PORT, process.env.HOST || '0.0.0.0', () => {
+            console.log(`🚀 News Management System running at http://localhost:${server.address().port}`);
         });
+        const shutdown = () => {
+            server.close(() => {
+                require('./db/init').getDb().close();
+                process.exit(0);
+            });
+            setTimeout(() => process.exit(1), 10000).unref();
+        };
+        process.on('SIGTERM', shutdown);
+        process.on('SIGINT', shutdown);
     } catch (err) {
         console.error('Failed to start server:', err);
         process.exit(1);

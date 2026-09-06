@@ -1,0 +1,44 @@
+name: news-management-system
+services:
+  backend:
+    image: ${NMS_NODE_IMAGE:?Set a pinned Node image digest}
+    user: "1000:1000"
+    working_dir: /app
+    command: ["node", "server/index.js"]
+    init: true
+    restart: unless-stopped
+    env_file: backend.env
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      PORT: "3000"
+      HOST: 0.0.0.0
+      ENABLE_NEWS_CLEANUP: "false"
+      NODE_OPTIONS: --max-old-space-size=320
+      TZ: Asia/Kolkata
+    ports:
+      - "127.0.0.1:3010:3000"
+    volumes:
+      - ./current:/app:ro
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 0.5
+    pids_limit: 100
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"

@@ -13,3 +13,5 @@ public/uploads/
 *.log
 scratch/
 scratch_*.js
+deploy-tools/
+deploy.zip

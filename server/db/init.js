@@ -3,15 +3,17 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
-const dbPath = path.join(__dirname, '..', '..', 'news.db');
+const { dataDir } = require('../storage');
+const dbPath = path.join(dataDir, 'news.db');
 
 let db = null;
 
 /**
  * Initialize the database — must be called once before using `getDb()`
- * sql.js is pure JavaScript, no native compilation needed
+ * Uses better-sqlite3 with a persistent data directory.
  */
 async function initDatabase() {
+    fs.mkdirSync(dataDir, { recursive: true });
     db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
 
@@ -81,42 +83,20 @@ async function initDatabase() {
         )
     `);
 
-    // Migrations to add new columns to existing tables
-    try {
-        db.run("ALTER TABLE news ADD COLUMN rejected_at TEXT");
-    } catch (e) { /* column exists */ }
-    try {
-        db.run("ALTER TABLE news ADD COLUMN rejected_by INTEGER");
-    } catch (e) { /* column exists */ }
-    try {
-        db.run("ALTER TABLE news ADD COLUMN reject_reason TEXT");
-    } catch (e) { /* column exists */ }
-    try {
-        db.run("ALTER TABLE users ADD COLUMN avatar_path TEXT");
-    } catch (e) { /* column exists */ }
-    try {
-        db.run("ALTER TABLE users ADD COLUMN email TEXT");
-    } catch (e) { /* column exists */ }
-    try {
-        db.run("ALTER TABLE users ADD COLUMN phone TEXT");
-    } catch (e) { /* column exists */ }
-    try {
-        db.run("ALTER TABLE users ADD COLUMN city TEXT");
-    } catch (e) { /* column exists */ }
+    // Check the schema explicitly; do not hide failed migrations as duplicate columns.
+    const additions = {
+        users: { avatar_path: 'TEXT', email: 'TEXT', phone: 'TEXT', city: 'TEXT', name_hi: 'TEXT', name_en: 'TEXT', post: 'TEXT' },
+        news: { rejected_at: 'TEXT', rejected_by: 'INTEGER', reject_reason: 'TEXT', selected_image_path: 'TEXT', published_at: 'TEXT' }
+    };
+    db.transaction(() => {
+        for (const [table, columns] of Object.entries(additions)) {
+            const existing = new Set(db.prepare('PRAGMA table_info(' + table + ')').all().map(c => c.name));
+            for (const [name, type] of Object.entries(columns)) {
+                if (!existing.has(name)) db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + name + ' ' + type);
+            }
+        }
+    })();
 
-    try {
-        db.run("ALTER TABLE users ADD COLUMN name_hi TEXT");
-    } catch (e) { /* column exists */ }
-    try {
-        db.run("ALTER TABLE users ADD COLUMN name_en TEXT");
-    } catch (e) { /* column exists */ }
-    try {
-        db.run("ALTER TABLE users ADD COLUMN post TEXT");
-    } catch (e) { /* column exists */ }
-    try {
-        db.run("ALTER TABLE news ADD COLUMN selected_image_path TEXT");
-    } catch (e) { /* column exists */ }
-    
     // ============================================================
     // TABLE: news_copies
     // ============================================================
@@ -152,12 +132,15 @@ async function initDatabase() {
     // ============================================================
     const existingAdmin = db.prepare("SELECT id FROM users WHERE username = 'admin'").get();
     if (!existingAdmin) {
-        const hash = bcrypt.hashSync('admin123', 10);
-        db.run(
+        const password = process.env.ADMIN_INITIAL_PASSWORD;
+        if (process.env.NODE_ENV === 'production' && (!password || password.length < 16)) {
+            throw new Error('Set ADMIN_INITIAL_PASSWORD to at least 16 characters for a fresh production database.');
+        }
+        const hash = bcrypt.hashSync(password || 'admin123', 10);
+        db.prepare(
             "INSERT INTO users (username, password_hash, full_name, role) VALUES (?, ?, ?, ?)",
-            ['admin', hash, 'Master Admin', 'admin']
-        );
-        console.log('✅ Default admin created (admin / admin123)');
+        ).run('admin', hash, 'Master Admin', 'admin');
+        console.log('Default admin created');
     }
 
     // ============================================================
