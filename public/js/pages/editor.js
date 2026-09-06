@@ -247,9 +247,6 @@ function renderRawNewsCards() {
                     <button class="btn btn-success btn-xs" onclick="event.stopPropagation(); quickApproveNews(${n.id})">
                         ${icon('check',12)} ${t('editor.approve_btn')}
                     </button>
-                    <button class="btn btn-primary btn-xs" onclick="event.stopPropagation(); quickApproveAndForwardNews(${n.id})">
-                        ${icon('send',12)} ${t('editor.forward_card_btn')}
-                    </button>
                 ` : ''}
             </div>
         </div>
@@ -343,28 +340,19 @@ async function openRawNewsDetail(id) {
                 ${icon('x',14)} रिजेक्ट करें
             </button>
             ${hasRewrite ? `
+                <button class="btn btn-secondary btn-sm" onclick="saveProcessedNewsEdits(${id})">
+                    ${icon('check',14)} Save Edit
+                </button>
                 <button class="btn btn-success btn-sm" onclick="approveNews(${id})">
                     ${icon('check',14)} ${t('editor.approve_btn')}
-                </button>
-                <button class="btn btn-primary btn-sm" onclick="approveAndForwardNews(${id})">
-                    ${icon('send',14)} ${t('editor.forward_card_btn')}
                 </button>
             ` : ''}
         `;
 
-        let bodyToShow = news.body;
-        let headlineToShow = news.headline;
-
-        // If AI rewrite exists, show only the rewritten version
-        if (hasRewrite) {
-            bodyToShow = news.body_rewritten;
-            headlineToShow = news.headline_rewritten;
-        }
-
         // Build editor image picker if multiple images available
-        let imagePickerHtml = '';
+        let extraHtml = '';
         if (news.images && news.images.length > 1) {
-            imagePickerHtml = `
+            extraHtml += `
                 <div class="editor-image-picker">
                     <div class="editor-image-picker-label">${icon('photos', 14)} Choose cover image (${news.images.length} photos)</div>
                     <div class="editor-image-grid" id="editorImageGrid-${id}">
@@ -378,16 +366,26 @@ async function openRawNewsDetail(id) {
                 </div>
             `;
         }
+        if (hasRewrite) {
+            extraHtml += `
+                <div class="processed-review-block">
+                    <div class="processed-review-label">${icon('bot', 14)} ${t('editor.rewritten')}</div>
+                    <h2 class="processed-edit-headline editable-news-field" contenteditable="true" spellcheck="true" data-placeholder="Edit headline">${escapeHtml(news.headline_rewritten)}</h2>
+                    <div class="processed-edit-body editable-news-field" contenteditable="true" spellcheck="true" data-placeholder="Edit article text">${escapeHtml(news.body_rewritten)}</div>
+                </div>
+                <div class="raw-compare-label">${t('editor.raw_title')}</div>
+            `;
+        }
 
         showArticleModal({
-            headline: headlineToShow,
-            body: bodyToShow,
+            headline: news.headline,
+            body: news.body,
             image_path: news.selected_image_path || news.image_path,
             category: news.category,
             city: news.city,
             reporter_name: news.reporter_name,
             created_at: news.created_at,
-            extraHtml: imagePickerHtml,
+            extraHtml,
             actionsHtml
         });
     } catch (err) {
@@ -446,8 +444,10 @@ async function openProcessedNewsDetail(id) {
 }
 
 function enableProcessedNewsEditing() {
-    const headline = document.querySelector('#articleModal .modal-headline');
-    const body = document.querySelector('#articleModal .modal-article');
+    const headline = document.querySelector('#articleModal .processed-edit-headline') ||
+        document.querySelector('#articleModal .modal-headline');
+    const body = document.querySelector('#articleModal .processed-edit-body') ||
+        document.querySelector('#articleModal .modal-article');
 
     if (headline) {
         headline.contentEditable = 'true';
@@ -464,9 +464,20 @@ function enableProcessedNewsEditing() {
     }
 }
 
+function hasActiveNewsEditFields() {
+    return Boolean(
+        (document.querySelector('#articleModal .processed-edit-headline.editable-news-field') ||
+            document.querySelector('#articleModal .modal-headline.editable-news-field')) &&
+        (document.querySelector('#articleModal .processed-edit-body.editable-news-field') ||
+            document.querySelector('#articleModal .modal-article.editable-news-field'))
+    );
+}
+
 function getProcessedNewsEditPayload() {
-    const headline = document.querySelector('#articleModal .modal-headline');
-    const body = document.querySelector('#articleModal .modal-article');
+    const headline = document.querySelector('#articleModal .processed-edit-headline') ||
+        document.querySelector('#articleModal .modal-headline');
+    const body = document.querySelector('#articleModal .processed-edit-body') ||
+        document.querySelector('#articleModal .modal-article');
     return {
         headline_rewritten: (headline?.innerText || '').trim(),
         body_rewritten: (body?.innerText || '').trim()
@@ -744,9 +755,10 @@ function closeRewriteErrorModal() {
 
 async function approveNews(id) {
     try {
+        const editPayload = hasActiveNewsEditFields() ? getProcessedNewsEditPayload() : {};
         const result = await api(`/editor/news/${id}/approve`, {
             method: 'PUT',
-            body: JSON.stringify({})
+            body: JSON.stringify(editPayload)
         });
 
         if (result.error) {
@@ -781,43 +793,6 @@ async function forwardNews(id) {
     } catch (err) {
         showToast(t('common.error'), 'error');
     }
-}
-
-async function approveThenForwardNews(id, options = {}) {
-    try {
-        const approveResult = await api(`/editor/news/${id}/approve`, {
-            method: 'PUT',
-            body: JSON.stringify({})
-        });
-
-        if (approveResult.error) {
-            showToast(approveResult.error, 'error');
-            return false;
-        }
-
-        const forwardResult = await api(`/editor/news/${id}/forward`, {
-            method: 'POST',
-            body: JSON.stringify({})
-        });
-
-        if (forwardResult.error) {
-            showToast(forwardResult.error, 'error');
-            return false;
-        }
-
-        if (options.closeModal) closeArticleModal();
-        showToast(t('editor.forward_success'), 'success');
-        loadRawNews();
-        loadProcessedNews();
-        return true;
-    } catch (err) {
-        showToast(t('common.error'), 'error');
-        return false;
-    }
-}
-
-async function approveAndForwardNews(id) {
-    await approveThenForwardNews(id, { closeModal: true });
 }
 
 async function saveProcessedNewsEdits(id, options = {}) {
@@ -872,10 +847,6 @@ async function quickApproveNews(id) {
     } catch (err) {
         showToast(t('common.error'), 'error');
     }
-}
-
-async function quickApproveAndForwardNews(id) {
-    await approveThenForwardNews(id);
 }
 
 async function quickForwardNews(id) {

@@ -130,13 +130,19 @@ function showToast(message, type = 'success') {
         container = document.querySelector('.toast-container');
     }
 
+    const existingToast = container.querySelector('.toast');
+    if (existingToast) {
+        clearTimeout(existingToast._removeTimer);
+        existingToast.remove();
+    }
+
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     const icons = { success: '✅', error: '❌', info: 'ℹ️' };
     toast.innerHTML = `<span>${icons[type] || ''}</span><span>${message}</span>`;
     container.appendChild(toast);
 
-    setTimeout(() => {
+    toast._removeTimer = setTimeout(() => {
         toast.remove();
         if (container.children.length === 0) container.remove();
     }, 3000);

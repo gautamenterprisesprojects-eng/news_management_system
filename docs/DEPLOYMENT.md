@@ -1,4 +1,4 @@
-# Deployment
+﻿# Deployment
 
 ## Stage 1: GitHub and Vercel frontend
 
@@ -71,3 +71,7 @@ Then verify login, article submission, rewriting, image downloads, and profiles.
 
 Marking news as published is an internal database state; it does not automatically
 publish articles to an external news website or social media account.
+## Current operational runbook
+
+Use `docs/NMS_DEPLOYMENT_RUNBOOK.md` for the current repeatable deployment process, rollback steps, DNS notes, and shared-server safety checks. Sensitive SSH/account details are kept separately in `scratch/NMS_PRIVATE_ACCESS_RUNBOOK.md`, which is intentionally ignored by git.
+

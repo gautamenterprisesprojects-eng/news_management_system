@@ -1210,8 +1210,40 @@ select.form-input {
 }
 
 .modal-actions .btn {
-    flex: 1;
-    min-width: 120px;
+    flex: 1 1 150px;
+    min-width: min(150px, 100%);
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    text-align: center;
+    line-height: 1.25;
+    min-height: 48px;
+    padding: 10px 12px;
+}
+
+.modal-actions .btn svg {
+    flex: 0 0 auto;
+}
+
+.modal-actions-bottom {
+    align-items: stretch;
+}
+
+@media (max-width: 520px) {
+    .modal-actions {
+        gap: 8px;
+    }
+
+    .modal-actions .btn {
+        flex-basis: calc(50% - 4px);
+        min-width: 0;
+        font-size: 0.8rem;
+        padding: 9px 8px;
+    }
+
+    .modal-actions .btn:only-child {
+        flex-basis: 100%;
+    }
 }
 
 @media (min-width: 768px) {
@@ -1990,6 +2022,48 @@ select.form-input {
     align-items: center;
     justify-content: center;
     gap: 3px;
+}
+
+.processed-review-block {
+    margin-top: 16px;
+    padding: 14px;
+    background: #f8fafc;
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+}
+
+.processed-review-label,
+.raw-compare-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--accent-orange);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 8px;
+}
+
+.raw-compare-label {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px dashed #cbd5e1;
+    color: var(--text-muted);
+}
+
+.processed-edit-headline {
+    font-size: 1.18rem;
+    line-height: 1.35;
+    color: var(--text-primary);
+    margin: 0 0 10px;
+}
+
+.processed-edit-body {
+    font-size: var(--font-size-md);
+    color: var(--text-secondary);
+    line-height: 1.7;
+    white-space: pre-wrap;
 }
 
 /* ============================================================

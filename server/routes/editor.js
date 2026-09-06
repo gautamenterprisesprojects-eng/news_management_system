@@ -281,13 +281,16 @@ router.post('/news/:id/rewrite', async (req, res) => {
 
 /**
  * PUT /api/editor/news/:id/content
- * Save manual edits to processed rewritten text before forwarding.
+ * Save manual edits to rewritten text while reviewing raw rewrites or processed news.
  */
 router.put('/news/:id/content', (req, res) => {
     try {
-        const news = queryGet('SELECT * FROM news WHERE id = ? AND status = ?', [req.params.id, 'processed']);
+        const news = queryGet('SELECT * FROM news WHERE id = ?', [req.params.id]);
         if (!news) {
-            return res.status(400).json({ error: 'News must be processed before editing.' });
+            return res.status(404).json({ error: 'News not found.' });
+        }
+        if (!['raw', 'processed'].includes(news.status)) {
+            return res.status(400).json({ error: 'News can only be edited during rewrite review or processed review.' });
         }
 
         const headline = String(req.body.headline_rewritten || '').trim();
