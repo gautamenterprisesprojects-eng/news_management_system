@@ -3,5 +3,15 @@
   "framework": null,
   "installCommand": "echo Skipping dependency installation for static frontend",
   "buildCommand": "",
-  "outputDirectory": "public"
+  "outputDirectory": "public",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://nms-api.thecliffnews.in/api/:path*"
+    },
+    {
+      "source": "/uploads/:path*",
+      "destination": "https://nms-api.thecliffnews.in/uploads/:path*"
+    }
+  ]
 }
