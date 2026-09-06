@@ -73,6 +73,25 @@ router.get('/news/processed', (req, res) => {
     }
 });
 
+// GET /api/editor/news/forwarded — includes articles later marked published.
+router.get('/news/forwarded', (req, res) => {
+    try {
+        const news = queryAll(`
+            SELECT n.id, n.headline, n.headline_rewritten,
+                   SUBSTR(COALESCE(n.body_rewritten, n.body), 1, 200) as body,
+                   n.category, n.city, n.status, n.image_path, n.selected_image_path,
+                   n.forwarded_at, n.published_at, u.full_name as reporter_name
+            FROM news n JOIN users u ON n.reporter_id = u.id
+            WHERE n.forwarded_at IS NOT NULL
+            ORDER BY n.forwarded_at DESC
+        `);
+        res.json({ news });
+    } catch (err) {
+        console.error('Editor get forwarded news error:', err);
+        res.status(500).json({ error: 'Failed to fetch forwarded news.' });
+    }
+});
+
 /**
  * GET /api/editor/news/rejected
  * IMPORTANT: Must be before /news/:id

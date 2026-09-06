@@ -68,9 +68,9 @@ function renderEditor() {
 function switchEditorPane(pane) {
     editorTab = pane;
 
-    // Rejected and Published open as full-screen views
-    if (pane === 'rejected') {
-        renderEditorRejectedScreen();
+    // Forwarded and Published open as full-screen views
+    if (pane === 'forwarded') {
+        renderEditorForwardedScreen();
         return;
     }
     if (pane === 'published') {
@@ -97,7 +97,7 @@ function switchEditorPane(pane) {
 /**
  * Full-screen view for Rejected News — opened from bottom nav
  */
-function renderEditorRejectedScreen() {
+function renderEditorForwardedScreen() {
     const app = document.getElementById('app');
     app.innerHTML = `
         ${renderTopBar('editor.title', null, 'pen')}
@@ -107,16 +107,21 @@ function renderEditorRejectedScreen() {
                     <button class="btn btn-secondary btn-sm" onclick="editorTab='raw'; renderEditor();">← ${t('common.back') || 'वापस'}</button>
                     <h3 style="margin: 0;">❌ रिजेक्टेड खबरें (48h)</h3>
                 </div>
-                <span class="pane-count" id="rejectedPaneCount">0</span>
+                <span class="pane-count" id="forwardedPaneCount">0</span>
             </div>
-            <div id="rejectedNewsList" style="padding: 0 8px;">
+            <div id="forwardedNewsList" style="padding: 0 8px;">
                 <div class="loading-spinner" style="margin:40px auto;"></div>
             </div>
         </main>
-        ${renderBottomNav('editor', 'rejected')}
+        ${renderBottomNav('editor', 'forwarded')}
     `;
+    const forwardedHeading = app.querySelector('.split-pane-header h3');
+    if (forwardedHeading) {
+        forwardedHeading.dataset.i18n = 'editor.forwarded_tab';
+        forwardedHeading.textContent = t('editor.forwarded_tab');
+    }
     applyLanguage();
-    loadRejectedNews();
+    loadForwardedNews();
 }
 
 /**
@@ -888,6 +893,46 @@ async function quickForwardNews(id) {
     }
 }
 
+async function loadForwardedNews() {
+    const container = document.getElementById('forwardedNewsList');
+    if (!container) return;
+    try {
+        const data = await api('/editor/news/forwarded');
+        const news = data.news || [];
+        const count = document.getElementById('forwardedPaneCount');
+        if (count) count.textContent = news.length;
+
+        if (news.length === 0) {
+            container.innerHTML = `<div class="empty-state"><div class="empty-icon-svg">${icon('send', 40)}</div><div class="empty-text">${t('operator.no_news')}</div></div>`;
+            applyLanguage();
+            return;
+        }
+
+        container.innerHTML = news.map(n => `
+            <div class="card news-card" onclick="openPublishedNewsDetail(${n.id})">
+                <div class="news-card-header">
+                    ${n.image_path ? `<img class="news-card-thumb" src="${n.selected_image_path || n.image_path}" alt="">` : `<div class="news-card-thumb-placeholder">${icon('newspaper', 22)}</div>`}
+                    <div class="news-card-info">
+                        <div class="news-card-headline"><span style="color:var(--accent-orange);margin-right:6px;">#${n.id}</span>${escapeHtml(n.headline_rewritten || n.headline)}</div>
+                        <div class="news-card-body">${escapeHtml(n.body)}</div>
+                    </div>
+                </div>
+                <div class="news-card-meta">
+                    <span class="status-badge ${n.status === 'published' ? 'processed' : 'forwarded'}">${n.status === 'published' ? t('editor.status_published') : t('editor.status_forwarded')}</span>
+                    <span class="news-card-meta-item">${icon('user',12)} ${escapeHtml(n.reporter_name)}</span>
+                    <span class="news-card-meta-item">${icon('clock',12)} ${formatDate(n.forwarded_at)}</span>
+                </div>
+                <div class="news-card-actions-row">
+                    <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); openPublishedNewsDetail(${n.id})">${icon('eye',12)} पूरी खबर पढ़ें</button>
+                    <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deleteNews(${n.id}, 'forwarded')">${icon('trash',12)} डिलीट करें</button>
+                </div>
+            </div>
+        `).join('');
+    } catch (err) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
+    }
+}
+
 async function loadRejectedNews() {
     const container = document.getElementById('rejectedNewsList');
     if(!container) return;
@@ -1066,6 +1111,8 @@ async function deleteNews(id, source = 'published') {
         if (source === 'raw') {
             loadRawNews();
             loadProcessedNews();
+        } else if (source === 'forwarded') {
+            loadForwardedNews();
         } else {
             loadPublishedNews();
         }

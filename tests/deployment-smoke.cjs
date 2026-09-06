@@ -71,6 +71,8 @@ const { once } = require('node:events');
         const retainedRaw = await (await request('/api/editor/news/raw')).json();
         assert.ok(retainedRaw.news.some(item => item.id === article.id && item.status === 'processed'));
         await request(`/api/editor/news/${article.id}/forward`, 'POST', {});
+        const forwarded = await (await request('/api/editor/news/forwarded')).json();
+        assert.ok(forwarded.news.some(item => item.id === article.id));
         token = operatorToken;
         await request('/api/admin/users', 'GET', undefined, 403);
         await request(`/api/operator/news/${article.id}/copy`, 'POST', {});

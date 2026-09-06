@@ -87,7 +87,7 @@ function renderBottomNav(role, activeTab) {
             items = [
                 { id: 'raw', icon: 'inbox', label: 'editor.raw_tab' },
                 { id: 'processed', icon: 'check-check', label: 'editor.processed_tab' },
-                { id: 'rejected', icon: 'x-circle', label: 'editor.rejected_tab' },
+                { id: 'forwarded', icon: 'send', label: 'editor.forwarded_tab' },
                 { id: 'published', icon: 'globe', label: 'editor.published_tab' },
             ];
             break;
