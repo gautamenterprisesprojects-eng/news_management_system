@@ -1160,11 +1160,19 @@ select.form-input {
 }
 
 .modal-actions-top .btn {
-    flex: 1;
-    min-width: 120px;
+    flex: 1 1 130px;
+    min-width: min(130px, 100%);
     font-size: var(--font-size-xs);
-    padding: 8px 14px;
+    padding: 8px 10px;
     min-height: 36px;
+    line-height: 1.25;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+}
+
+.modal-actions-top .btn svg {
+    flex: 0 0 auto;
 }
 
 .modal-article {
@@ -1174,6 +1182,24 @@ select.form-input {
     white-space: pre-wrap;
     word-wrap: break-word;
     margin-top: var(--space-md);
+}
+
+.editable-news-field {
+    border: 1px solid #fed7aa;
+    border-radius: var(--radius-md);
+    background: #fffaf5;
+    padding: 10px 12px;
+    outline: none;
+}
+
+.editable-news-field:focus {
+    border-color: var(--accent-orange);
+    box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+}
+
+.editable-news-field:empty::before {
+    content: attr(data-placeholder);
+    color: var(--text-muted);
 }
 
 .modal-actions {
@@ -1234,6 +1260,15 @@ select.form-input {
     border-radius: var(--radius-md);
     box-shadow: 0 4px 14px rgba(234, 88, 12, 0.35);
     margin-bottom: var(--space-xs);
+}
+
+.login-brand-logo-img {
+    display: block;
+    width: min(82vw, 440px);
+    height: auto;
+    max-height: 138px;
+    object-fit: contain;
+    margin: 0 auto 10px;
 }
 
 .brand-tagline-text {
@@ -2042,4 +2077,3 @@ select.form-input {
 .operator-img-download-btn:hover {
     background: var(--accent-orange);
 }
-

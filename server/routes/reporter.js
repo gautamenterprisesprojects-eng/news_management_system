@@ -13,7 +13,16 @@ const storage = multer.diskStorage({
         cb(null, uploadsDir);
     },
     filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname);
+        const extByMime = {
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/webp': '.webp',
+            'image/gif': '.gif',
+            'image/avif': '.avif',
+            'image/heic': '.heic',
+            'image/heif': '.heif'
+        };
+        const ext = path.extname(file.originalname) || extByMime[file.mimetype] || '';
         cb(null, `${uuidv4()}${ext}`);
     }
 });
@@ -22,12 +31,14 @@ const upload = multer({
     storage,
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per file
     fileFilter: (req, file, cb) => {
-        const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+        const allowed = ['.jpg', '.jpeg', '.jfif', '.png', '.webp', '.gif', '.avif', '.heic', '.heif'];
         const ext = path.extname(file.originalname).toLowerCase();
-        if (allowed.includes(ext)) {
+        if ((file.mimetype && file.mimetype.startsWith('image/')) || allowed.includes(ext)) {
             cb(null, true);
         } else {
-            cb(new Error('Only image files (jpg, png, webp, gif) are allowed.'));
+            const err = new Error('Only image files are allowed. Use JPG, PNG, WebP, GIF, AVIF, HEIC, or HEIF.');
+            err.statusCode = 400;
+            cb(err);
         }
     }
 });

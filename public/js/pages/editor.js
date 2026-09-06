@@ -78,6 +78,10 @@ function switchEditorPane(pane) {
         return;
     }
 
+    if (!document.getElementById(pane + 'Pane')) {
+        renderEditor();
+    }
+
     document.querySelectorAll('.split-tab').forEach(tab => {
         tab.classList.toggle('active', tab.dataset.tab === pane);
     });
@@ -243,6 +247,9 @@ function renderRawNewsCards() {
                     <button class="btn btn-success btn-xs" onclick="event.stopPropagation(); quickApproveNews(${n.id})">
                         ${icon('check',12)} ${t('editor.approve_btn')}
                     </button>
+                    <button class="btn btn-primary btn-xs" onclick="event.stopPropagation(); quickApproveAndForwardNews(${n.id})">
+                        ${icon('send',12)} ${t('editor.forward_card_btn')}
+                    </button>
                 ` : ''}
             </div>
         </div>
@@ -339,6 +346,9 @@ async function openRawNewsDetail(id) {
                 <button class="btn btn-success btn-sm" onclick="approveNews(${id})">
                     ${icon('check',14)} ${t('editor.approve_btn')}
                 </button>
+                <button class="btn btn-primary btn-sm" onclick="approveAndForwardNews(${id})">
+                    ${icon('send',14)} ${t('editor.forward_card_btn')}
+                </button>
             ` : ''}
         `;
 
@@ -390,8 +400,6 @@ async function openProcessedNewsDetail(id) {
         const news = await api(`/editor/news/${id}`);
         if (news.error) { showToast(news.error, 'error'); return; }
 
-        let bodyHtml = `<div style="white-space: pre-wrap; font-size: 1.05rem; line-height: 1.7; color: var(--text-primary); font-family: 'Outfit', sans-serif;">${escapeHtml(news.body_rewritten || news.body)}</div>`;
-
         let extraHtml = '';
         if (news.images && news.images.length > 0) {
             extraHtml = `
@@ -410,7 +418,10 @@ async function openProcessedNewsDetail(id) {
         }
 
         const actionsHtml = `
-            <button class="btn btn-primary" style="flex:1;" onclick="forwardNews(${id})">
+            <button class="btn btn-secondary" style="flex:1;" onclick="saveProcessedNewsEdits(${id})">
+                ${icon('check', 14)} Save Edit
+            </button>
+            <button class="btn btn-primary" style="flex:1;" onclick="forwardEditedNews(${id})">
                 ${icon('send', 14)} ${t('editor.forward_card_btn')}
             </button>
         `;
@@ -427,9 +438,39 @@ async function openProcessedNewsDetail(id) {
             created_at: news.processed_at || news.created_at,
             actionsHtml
         });
+
+        enableProcessedNewsEditing();
     } catch (err) {
         showToast(t('common.error'), 'error');
     }
+}
+
+function enableProcessedNewsEditing() {
+    const headline = document.querySelector('#articleModal .modal-headline');
+    const body = document.querySelector('#articleModal .modal-article');
+
+    if (headline) {
+        headline.contentEditable = 'true';
+        headline.classList.add('editable-news-field');
+        headline.setAttribute('data-placeholder', 'Edit headline');
+        headline.setAttribute('spellcheck', 'true');
+    }
+
+    if (body) {
+        body.contentEditable = 'true';
+        body.classList.add('editable-news-field');
+        body.setAttribute('data-placeholder', 'Edit article text');
+        body.setAttribute('spellcheck', 'true');
+    }
+}
+
+function getProcessedNewsEditPayload() {
+    const headline = document.querySelector('#articleModal .modal-headline');
+    const body = document.querySelector('#articleModal .modal-article');
+    return {
+        headline_rewritten: (headline?.innerText || '').trim(),
+        body_rewritten: (body?.innerText || '').trim()
+    };
 }
 
 async function selectEditorImage(newsId, imageId, el) {
@@ -458,12 +499,13 @@ async function selectEditorImage(newsId, imageId, el) {
         }
         showToast('Image selected successfully', 'success');
         
-        const modalImg = document.querySelector('.article-modal-img');
+        const modalImg = document.querySelector('.modal-image');
         if (modalImg && result.selected_image_path) {
             modalImg.src = result.selected_image_path;
         }
 
-        loadProcessedNews();
+        if (document.getElementById('processedNewsList')) loadProcessedNews();
+        if (document.getElementById('publishedNewsList')) loadPublishedNews();
     } catch (err) {
         showToast(t('common.error'), 'error');
     }
@@ -741,6 +783,76 @@ async function forwardNews(id) {
     }
 }
 
+async function approveThenForwardNews(id, options = {}) {
+    try {
+        const approveResult = await api(`/editor/news/${id}/approve`, {
+            method: 'PUT',
+            body: JSON.stringify({})
+        });
+
+        if (approveResult.error) {
+            showToast(approveResult.error, 'error');
+            return false;
+        }
+
+        const forwardResult = await api(`/editor/news/${id}/forward`, {
+            method: 'POST',
+            body: JSON.stringify({})
+        });
+
+        if (forwardResult.error) {
+            showToast(forwardResult.error, 'error');
+            return false;
+        }
+
+        if (options.closeModal) closeArticleModal();
+        showToast(t('editor.forward_success'), 'success');
+        loadRawNews();
+        loadProcessedNews();
+        return true;
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+        return false;
+    }
+}
+
+async function approveAndForwardNews(id) {
+    await approveThenForwardNews(id, { closeModal: true });
+}
+
+async function saveProcessedNewsEdits(id, options = {}) {
+    const payload = getProcessedNewsEditPayload();
+    if (!payload.headline_rewritten || !payload.body_rewritten) {
+        showToast('Headline and body cannot be empty', 'error');
+        return false;
+    }
+
+    try {
+        const result = await api(`/editor/news/${id}/content`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        });
+
+        if (result.error) {
+            showToast(result.error, 'error');
+            return false;
+        }
+
+        if (!options.silent) showToast('Edited news saved', 'success');
+        loadProcessedNews();
+        return true;
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+        return false;
+    }
+}
+
+async function forwardEditedNews(id) {
+    const saved = await saveProcessedNewsEdits(id, { silent: true });
+    if (!saved) return;
+    await forwardNews(id);
+}
+
 
 async function quickApproveNews(id) {
     try {
@@ -760,6 +872,10 @@ async function quickApproveNews(id) {
     } catch (err) {
         showToast(t('common.error'), 'error');
     }
+}
+
+async function quickApproveAndForwardNews(id) {
+    await approveThenForwardNews(id);
 }
 
 async function quickForwardNews(id) {
@@ -877,7 +993,7 @@ async function loadPublishedNews(append = false) {
             }
 
             return `
-            <div class="card news-card">
+            <div class="card news-card" onclick="openPublishedNewsDetail(${n.id})">
                 <div class="news-card-header">
                     ${n.image_path
                         ? `<img class="news-card-thumb" src="${n.image_path}" alt="" onerror="this.className='news-card-thumb-placeholder';this.innerHTML='📰'">`
@@ -894,7 +1010,7 @@ async function loadPublishedNews(append = false) {
                 </div>
                 ${copiesHtml}
                 <div class="news-card-actions-row" style="justify-content: flex-end;">
-                    <button class="btn btn-danger btn-sm" onclick="deleteNews(${n.id})">
+                    <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteNews(${n.id})">
                         ${icon('trash',12)} डिलीट करें
                     </button>
                 </div>
@@ -962,6 +1078,51 @@ async function deleteNews(id) {
     }
 }
 
+async function openPublishedNewsDetail(id) {
+    try {
+        const news = await api(`/editor/news/${id}`);
+        if (news.error) { showToast(news.error, 'error'); return; }
+
+        const hasImages = news.images && news.images.length > 0;
+        let extraHtml = '';
+        if (hasImages) {
+            extraHtml = `
+                <div class="editor-image-picker" style="margin-top:24px; padding-top:16px; border-top:1px solid var(--border-color);">
+                    <div class="editor-image-picker-label">${icon('photos', 14)} Cover Image Selection (${news.images.length})</div>
+                    <div class="editor-image-grid" id="editorImageGrid-${id}">
+                        ${news.images.map(img => `
+                            <div class="editor-img-tile ${img.is_selected ? 'selected' : ''}" onclick="selectEditorImage(${id}, ${img.id}, this)">
+                                <img src="${img.image_path}" alt="">
+                                ${img.is_selected ? `<div class="editor-img-selected-badge">${icon('check', 10)} Cover</div>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        const actionsHtml = `
+            <button class="btn btn-danger" onclick="deleteNews(${id})">
+                ${icon('trash', 14)} डिलीट करें
+            </button>
+        `;
+
+        showArticleModal({
+            headline: news.headline_rewritten || news.headline,
+            body: news.body_rewritten || news.body,
+            extraHtml,
+            image_path: news.selected_image_path || news.image_path,
+            category: news.category,
+            city: news.city,
+            reporter_name: news.reporter_name,
+            created_at: news.published_at || news.forwarded_at || news.processed_at || news.created_at,
+            actionsHtml
+        });
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    }
+}
+
 /**
  * Select a specific image as the cover image for a news article (editor image picker)
  * @param {number} newsId - news article ID
@@ -994,6 +1155,13 @@ async function selectEditorImage(newsId, imageId, tileEl) {
             );
         }
 
+        const modalImg = document.querySelector('.modal-image');
+        if (modalImg && result.selected_image_path) {
+            modalImg.src = result.selected_image_path;
+        }
+
+        if (document.getElementById('processedNewsList')) loadProcessedNews();
+        if (document.getElementById('publishedNewsList')) loadPublishedNews();
         showToast('Cover image selected', 'success');
     } catch (err) {
         showToast(t('common.error'), 'error');

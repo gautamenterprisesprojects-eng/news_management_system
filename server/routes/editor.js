@@ -280,6 +280,39 @@ router.post('/news/:id/rewrite', async (req, res) => {
 });
 
 /**
+ * PUT /api/editor/news/:id/content
+ * Save manual edits to processed rewritten text before forwarding.
+ */
+router.put('/news/:id/content', (req, res) => {
+    try {
+        const news = queryGet('SELECT * FROM news WHERE id = ? AND status = ?', [req.params.id, 'processed']);
+        if (!news) {
+            return res.status(400).json({ error: 'News must be processed before editing.' });
+        }
+
+        const headline = String(req.body.headline_rewritten || '').trim();
+        const body = String(req.body.body_rewritten || '').trim();
+        if (!headline || !body) {
+            return res.status(400).json({ error: 'Headline and body are required.' });
+        }
+
+        queryRun(
+            'UPDATE news SET headline_rewritten = ?, body_rewritten = ? WHERE id = ?',
+            [headline, body, news.id]
+        );
+
+        res.json({
+            success: true,
+            headline_rewritten: headline,
+            body_rewritten: body
+        });
+    } catch (err) {
+        console.error('Editor update content error:', err);
+        res.status(500).json({ error: 'Failed to save edited news.' });
+    }
+});
+
+/**
  * PUT /api/editor/news/:id/approve
  */
 router.put('/news/:id/approve', (req, res) => {

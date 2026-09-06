@@ -9,7 +9,7 @@ function renderLogin() {
     app.innerHTML = `
         <div class="login-container">
             <div class="login-logo">
-                <div class="brand-logo-badge">THE CLIFF NEWS</div>
+                <img class="login-brand-logo-img" src="/images/logo-wide.png" alt="The Cliff News">
                 <h1 style="display:none;">THE CLIFF NEWS</h1>
                 <p class="brand-tagline-text" data-i18n="login.subtitle">${t('login.subtitle')}</p>
             </div>

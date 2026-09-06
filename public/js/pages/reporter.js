@@ -34,7 +34,8 @@ function renderReporterSubmitTab() {
             <div class="form-group">
                 <label class="form-label" data-i18n="reporter.category">${t('reporter.category')}</label>
                 <select class="form-input form-select" id="newsCategory" required>
-                    <option value="" data-i18n="reporter.category_placeholder">${t('reporter.category_placeholder')}</option>
+                    <option value="regional" data-i18n="reporter.cat_regional" selected>${t('reporter.cat_regional')}</option>
+                    <option value="regional_district" data-i18n="reporter.cat_regional_district">${t('reporter.cat_regional_district')}</option>
                     <option value="politics" data-i18n="reporter.cat_politics">${t('reporter.cat_politics')}</option>
                     <option value="crime" data-i18n="reporter.cat_crime">${t('reporter.cat_crime')}</option>
                     <option value="sports" data-i18n="reporter.cat_sports">${t('reporter.cat_sports')}</option>
@@ -99,6 +100,7 @@ function renderReporterSubmitTab() {
 /* ── Multi-image handling ─────────────────────────────────── */
 
 let _selectedFiles = [];
+const MAX_REPORTER_IMAGE_BYTES = 10 * 1024 * 1024;
 
 function setupMultiImageDrop() {
     const zone = document.getElementById('multiImageUploadArea');
@@ -123,8 +125,18 @@ function previewMultiImages(input) {
 
 function addFilesToStrip(files) {
     files.forEach(f => {
-        if (_selectedFiles.length >= 10) return;
-        if (!f.type.startsWith('image/')) return;
+        if (_selectedFiles.length >= 10) {
+            showToast('Maximum 10 photos allowed', 'error');
+            return;
+        }
+        if (!f.type || !f.type.startsWith('image/')) {
+            showToast(`${f.name || 'Selected file'} is not an image`, 'error');
+            return;
+        }
+        if (f.size > MAX_REPORTER_IMAGE_BYTES) {
+            showToast(`${f.name || 'Selected image'} is larger than 10MB`, 'error');
+            return;
+        }
         _selectedFiles.push(f);
     });
     renderImageStrip();

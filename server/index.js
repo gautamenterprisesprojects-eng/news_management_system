@@ -105,10 +105,14 @@ app.get('*', (req, res) => {
 // ERROR HANDLER
 // ============================================================
 app.use((err, req, res, next) => {
-    console.error('Unhandled error:', err);
     if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({ error: 'File too large. Maximum size is 10MB.' });
     }
+    if (err.statusCode) {
+        if (err.statusCode >= 500) console.error('Unhandled error:', err);
+        return res.status(err.statusCode).json({ error: err.message });
+    }
+    console.error('Unhandled error:', err);
     res.status(500).json({ error: 'Internal server error.' });
 });
 
