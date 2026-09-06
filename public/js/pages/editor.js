@@ -246,7 +246,7 @@ function renderRawNewsCards() {
                 ` : ''}
             </div>
         </div>
-    }).join('');
+    `).join('');
 
     if (_hasMoreRaw) {
         container.innerHTML += `
@@ -999,4 +999,3 @@ async function selectEditorImage(newsId, imageId, tileEl) {
         showToast(t('common.error'), 'error');
     }
 }
-
