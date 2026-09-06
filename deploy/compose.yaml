@@ -13,7 +13,7 @@ services:
       DATA_DIR: /data
       PORT: "3000"
       HOST: 0.0.0.0
-      ENABLE_NEWS_CLEANUP: "false"
+      ENABLE_NEWS_CLEANUP: "true"
       NODE_OPTIONS: --max-old-space-size=320
       TZ: Asia/Kolkata
     ports:

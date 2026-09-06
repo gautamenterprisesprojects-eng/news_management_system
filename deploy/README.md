@@ -16,7 +16,7 @@ Never run Compose commands from either existing project's directory.
 
 The app binds only to host loopback port 3010. It needs a separate Nginx HTTPS
 virtual host before Vercel can connect. CPU/memory/process limits and rotating logs
-are configured in Compose. Automatic 48-hour deletion is disabled.
+are configured in Compose. Automatic 48-hour deletion is enabled.
 
 ## Validation
 
