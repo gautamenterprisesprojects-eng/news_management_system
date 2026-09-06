@@ -415,7 +415,11 @@ async function openProcessedNewsDetail(id) {
             `;
         }
 
-        const actionsHtml = `
+        const actionsHtml = news.status === 'raw' ? `
+            <button class="btn btn-success" style="flex:1;" onclick="approveNews(${id})">
+                ${icon('check', 14)} ${t('editor.approve_btn')}
+            </button>
+        ` : `
             <button class="btn btn-secondary" style="flex:1;" onclick="saveProcessedNewsEdits(${id})">
                 ${icon('check', 14)} Save Edit
             </button>
