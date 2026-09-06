@@ -256,10 +256,10 @@ router.post('/news/:id/rewrite', async (req, res) => {
 
             const usedProvider = provider || queryGet("SELECT value FROM settings WHERE key = 'ai_provider'")?.value || 'gemini';
 
-            // Save rewritten content, keep status as raw for editor review
+            // Save rewritten content and move it to processed review.
             queryRun(
-                "UPDATE news SET headline_rewritten = ?, body_rewritten = ?, ai_provider = ?, status = 'raw' WHERE id = ?",
-                [result.headline, result.body, usedProvider, news.id]
+                "UPDATE news SET headline_rewritten = ?, body_rewritten = ?, ai_provider = ?, status = 'processed', editor_id = ?, processed_at = datetime('now', 'localtime') WHERE id = ?",
+                [result.headline, result.body, usedProvider, req.user.id, news.id]
             );
 
             res.json({

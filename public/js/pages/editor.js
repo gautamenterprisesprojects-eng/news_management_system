@@ -560,8 +560,10 @@ async function triggerRewrite(id, options = {}, btn = null) {
         closeCustomRewriteModal();
         closeRewriteErrorModal();
         await loadRawNews();
-        // Automatically open the detailed preview modal
-        openRawNewsDetail(id);
+        await loadProcessedNews();
+        switchEditorPane('processed');
+        // Automatically open the processed preview modal
+        openProcessedNewsDetail(id);
     } catch (err) {
         showRewriteErrorModal(id, options, err.message || 'Network error');
     } finally {
