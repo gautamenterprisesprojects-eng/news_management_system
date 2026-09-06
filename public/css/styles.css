@@ -984,21 +984,24 @@ select.form-input {
 
 @media (min-width: 768px) {
     .split-tabs {
-        display: none;
+        display: flex;
     }
 
     .split-screen {
-        flex-direction: row;
-        gap: var(--space-lg);
+        flex-direction: column;
+        gap: 0;
     }
 
     .split-pane {
-        display: block !important;
-        flex: 1;
-        min-width: 0;
-        max-height: calc(100vh - var(--topbar-height) - var(--bottomnav-height) - 80px);
+        display: none;
+        width: 100%;
+        max-height: calc(100vh - var(--topbar-height) - var(--bottomnav-height) - 128px);
         overflow-y: auto;
         padding-right: var(--space-sm);
+    }
+
+    .split-pane.active {
+        display: block;
     }
 
     .split-pane::-webkit-scrollbar {
