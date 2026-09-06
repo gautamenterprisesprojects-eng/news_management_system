@@ -40,29 +40,56 @@ const { once } = require('node:events');
         };
         await request('/api/health');
         await request('/api/auth/me', 'GET', undefined, 401);
-        token = (await (await request('/api/auth/login', 'POST', { username: 'admin', password })).json()).token;
-        assert.ok(token);
+        const adminToken = (await (await request('/api/auth/login', 'POST', { username: 'admin', password })).json()).token;
+        assert.ok(adminToken);
+        token = adminToken;
+        const createUser = async (username, role) => {
+            await request('/api/admin/users', 'POST', {
+                username, password: 'test-password', full_name: `Test ${role}`, role
+            });
+            return (await (await request('/api/auth/login', 'POST', { username, password: 'test-password' })).json()).token;
+        };
+        const reporterToken = await createUser('smoke-reporter', 'reporter');
+        const editorToken = await createUser('smoke-editor', 'editor');
+        const operatorToken = await createUser('smoke-operator', 'operator');
+        await request('/api/reporter/news', 'POST', { headline: 'Denied', body: 'Denied', category: 'local' }, 403);
+
+        token = reporterToken;
+        await request('/api/editor/news/raw', 'GET', undefined, 403);
         const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWZ0AAAAASUVORK5CYII=', 'base64');
         const form = new FormData();
         for (const [k, v] of Object.entries({ headline: 'Deployment test', body: 'A test article.', category: 'local', city: 'Test City' })) form.set(k, v);
         form.append('images', new Blob([bytes], { type: 'image/png' }), 'test.png');
         const article = await (await request('/api/reporter/news', 'POST', form)).json();
         assert.ok(article.id);
+        token = editorToken;
+        await request('/api/operator/news', 'GET', undefined, 403);
         const detail = await (await request(`/api/editor/news/${article.id}`)).json();
         assert.equal(detail.images.length, 1);
         await request(detail.image_path);
         await request(`/api/editor/news/${article.id}/approve`, 'PUT', { headline_rewritten: 'Edited test', body_rewritten: 'Edited test body.' });
+        const retainedRaw = await (await request('/api/editor/news/raw')).json();
+        assert.ok(retainedRaw.news.some(item => item.id === article.id && item.status === 'processed'));
         await request(`/api/editor/news/${article.id}/forward`, 'POST', {});
+        token = operatorToken;
+        await request('/api/admin/users', 'GET', undefined, 403);
         await request(`/api/operator/news/${article.id}/copy`, 'POST', {});
         const zip = await request(`/api/operator/news/${article.id}/images/zip`);
         assert.equal(zip.headers.get('content-type'), 'application/zip');
         assert.ok((await zip.arrayBuffer()).byteLength > 0);
         await request(`/api/operator/news/${article.id}/image`);
+        token = reporterToken;
         const profile = new FormData();
         for (const k of ['full_name', 'name_hi', 'name_en', 'post', 'email', 'phone', 'city']) profile.set(k, 'Smoke test');
         profile.append('avatar', new Blob([bytes], { type: 'image/png' }), 'avatar.png');
         const updated = await (await request('/api/profile', 'PUT', profile)).json();
         await request(updated.profile.avatar_path);
+        const removable = await (await request('/api/reporter/news', 'POST', {
+            headline: 'Remove me', body: 'This raw article is used to test deletion.', category: 'local'
+        })).json();
+        token = editorToken;
+        await request(`/api/editor/news/${removable.id}/delete`, 'POST', {});
+        await request(`/api/editor/news/${removable.id}`, 'GET', undefined, 404);
         await request('/api/does-not-exist', 'GET', undefined, 404);
         assert.ok(fs.existsSync(path.join(dataDir, 'news.db')));
         console.log('PASS: fresh production startup, authentication, article workflow, image upload/download/ZIP, avatars, and API 404.');

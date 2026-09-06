@@ -41,29 +41,15 @@ function renderTopBar(titleKey, icon) {
                     <div class="user-dropdown-item" onclick="window.location.hash='#/admin'; toggleUserDropdown();">
                         <i data-lucide="shield-check"></i> <span data-i18n="common.nav_admin_panel">${t('common.nav_admin_panel')}</span>
                     </div>
-                    <div class="user-dropdown-item" onclick="window.location.hash='#/reporter'; toggleUserDropdown();">
-                        <i data-lucide="file-plus-2"></i> <span data-i18n="common.nav_reporter_panel">${t('common.nav_reporter_panel')}</span>
-                    </div>
-                    <div class="user-dropdown-item" onclick="window.location.hash='#/editor'; toggleUserDropdown();">
-                        <i data-lucide="edit-3"></i> <span data-i18n="common.nav_editor_panel">${t('common.nav_editor_panel')}</span>
-                    </div>
-                    <div class="user-dropdown-item" onclick="window.location.hash='#/operator'; toggleUserDropdown();">
-                        <i data-lucide="layout-list"></i> <span data-i18n="common.nav_operator_panel">${t('common.nav_operator_panel')}</span>
-                    </div>
                 ` : user.role === 'editor' ? `
                     <div class="user-dropdown-item" onclick="window.location.hash='#/editor'; toggleUserDropdown();">
                         <i data-lucide="edit-3"></i> <span data-i18n="common.nav_editor_panel">${t('common.nav_editor_panel')}</span>
-                    </div>
-                    <div class="user-dropdown-item" onclick="window.location.hash='#/operator'; toggleUserDropdown();">
-                        <i data-lucide="layout-list"></i> <span data-i18n="common.nav_operator_panel">${t('common.nav_operator_panel')}</span>
-                    </div>
-                    <div class="user-dropdown-item" onclick="window.location.hash='#/reporter'; toggleUserDropdown();">
-                        <i data-lucide="file-plus-2"></i> <span data-i18n="common.nav_reporter_panel">${t('common.nav_reporter_panel')}</span>
                     </div>
                 ` : user.role === 'operator' ? `
                     <div class="user-dropdown-item" onclick="window.location.hash='#/operator'; toggleUserDropdown();">
                         <i data-lucide="layout-list"></i> <span data-i18n="common.nav_operator_panel">${t('common.nav_operator_panel')}</span>
                     </div>
+                ` : user.role === 'reporter' ? `
                     <div class="user-dropdown-item" onclick="window.location.hash='#/reporter'; toggleUserDropdown();">
                         <i data-lucide="file-plus-2"></i> <span data-i18n="common.nav_reporter_panel">${t('common.nav_reporter_panel')}</span>
                     </div>
@@ -183,4 +169,3 @@ async function uploadAvatar(input) {
         showToast('Error uploading photo', 'error');
     }
 }
-

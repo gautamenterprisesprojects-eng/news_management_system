@@ -160,10 +160,13 @@ async function loadRawNews(append = false) {
         }
 
         // Update counts (approximate if paginated)
+        // Processed articles remain visible here for history, but the raw count
+        // should represent work that is still awaiting processing.
+        const pendingRawCount = _rawNewsData.filter(item => item.status === 'raw').length;
         const countEls = ['rawCount', 'rawPaneCount'];
         countEls.forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.textContent = _rawNewsData.length + (_hasMoreRaw ? '+' : '');
+            if (el) el.textContent = pendingRawCount + (_hasMoreRaw ? '+' : '');
         });
 
         // Populate reporter filter from all reporters
@@ -211,8 +214,10 @@ function renderRawNewsCards() {
         return;
     }
 
-    container.innerHTML = filteredNews.map(n => `
-        <div class="card news-card" onclick="openRawNewsDetail(${n.id})">
+    container.innerHTML = filteredNews.map(n => {
+        const isProcessed = n.status === 'processed';
+        return `
+        <div class="card news-card ${isProcessed ? 'greyed-out' : ''}" onclick="${isProcessed ? `openProcessedNewsDetail(${n.id})` : `openRawNewsDetail(${n.id})`}">
             <div class="news-card-header">
                 ${n.image_path
                     ? `<img class="news-card-thumb" src="${n.image_path}" alt="" onerror="this.className='news-card-thumb-placeholder';this.innerHTML='📰'">`
@@ -224,13 +229,18 @@ function renderRawNewsCards() {
                 </div>
             </div>
             <div class="news-card-meta">
-                <span class="status-badge raw">${n.headline_rewritten ? `${icon('bot',10)} ${t('editor.status_ai_done')}` : t('editor.status_raw')}</span>
+                <span class="status-badge ${isProcessed ? 'processed' : 'raw'}">${isProcessed ? t('editor.status_processed') : (n.headline_rewritten ? `${icon('bot',10)} ${t('editor.status_ai_done')}` : t('editor.status_raw'))}</span>
                 <span class="news-card-meta-item">${icon('folder',12)} ${n.category}</span>
                 ${n.city ? `<span class="news-card-meta-item">${icon('pin',12)} ${n.city}</span>` : ''}
                 <span class="news-card-meta-item">${icon('user',12)} ${n.reporter_name}</span>
                 <span class="news-card-meta-item">${icon('clock',12)} ${formatDate(n.created_at)}</span>
             </div>
             <div class="news-card-actions-row">
+                ${isProcessed ? `
+                <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); openProcessedNewsDetail(${n.id})">
+                    ${icon('eye',12)} पूरी खबर पढ़ें
+                </button>
+                ` : `
                 <button class="btn btn-primary btn-xs" onclick="event.stopPropagation(); triggerRewrite(${n.id}, { language: 'hi', numSubheadings: 3, captionWords: 30, targetWords: 400 }, this)">
                     ${icon('bot',12)} ${t('editor.rewrite_hindi_btn')}
                 </button>
@@ -248,9 +258,13 @@ function renderRawNewsCards() {
                         ${icon('check',12)} ${t('editor.approve_btn')}
                     </button>
                 ` : ''}
+                `}
+                <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deleteNews(${n.id}, 'raw')">
+                    ${icon('trash',12)} डिलीट करें
+                </button>
             </div>
         </div>
-    `).join('');
+    `}).join('');
 
     if (_hasMoreRaw) {
         container.innerHTML += `
@@ -1043,13 +1057,18 @@ async function restoreNews(id) {
     }
 }
 
-async function deleteNews(id) {
-    if (!confirm("क्या आप वाकई इस प्रकाशित खबर को हटाना चाहते हैं?")) return;
+async function deleteNews(id, source = 'published') {
+    if (!confirm("क्या आप वाकई इस खबर को हटाना चाहते हैं? यह वापस नहीं होगा।")) return;
     try {
         const result = await api(`/editor/news/${id}/delete`, { method: 'POST', body: JSON.stringify({}) });
         if (result.error) { showToast(result.error, 'error'); return; }
         showToast('खबर हटा दी गई', 'success');
-        loadPublishedNews();
+        if (source === 'raw') {
+            loadRawNews();
+            loadProcessedNews();
+        } else {
+            loadPublishedNews();
+        }
     } catch(e) {
         showToast(t('common.error'), 'error');
     }

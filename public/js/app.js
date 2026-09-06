@@ -137,9 +137,9 @@ function router() {
     if (isAuthenticated()) {
         const user = getCurrentUser();
         const allowedRoutes = {
-            admin: ['#/admin', '#/reporter', '#/editor', '#/operator', '#/profile'],
-            editor: ['#/editor', '#/operator', '#/reporter', '#/profile'],
-            operator: ['#/operator', '#/reporter', '#/profile'],
+            admin: ['#/admin', '#/profile'],
+            editor: ['#/editor', '#/profile'],
+            operator: ['#/operator', '#/profile'],
             reporter: ['#/reporter', '#/profile']
         };
 
@@ -191,4 +191,3 @@ if (document.body) {
 
 // Start router
 router();
-

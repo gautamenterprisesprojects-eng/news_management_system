@@ -47,8 +47,9 @@ function requireRole(...roles) {
         if (!req.user) {
             return res.status(401).json({ error: 'Authentication required.' });
         }
-        // Admin has superuser access to all routes
-        if (req.user.role === 'admin' || roles.includes(req.user.role)) {
+        // A role is allowed only when it is explicitly listed by the route.
+        // Admin operations are intentionally isolated under /api/admin.
+        if (roles.includes(req.user.role)) {
             return next();
         }
         return res.status(403).json({ error: 'Access denied. Insufficient permissions.' });

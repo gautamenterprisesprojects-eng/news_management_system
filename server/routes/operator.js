@@ -7,8 +7,8 @@ const archiver = require('archiver');
 const { queryAll, queryGet, queryRun } = require('../db/init');
 const { verifyToken, requireRole } = require('../middleware/auth');
 
-// Operator routes accessible by operator, editor, and admin
-router.use(verifyToken, requireRole('operator', 'editor'));
+// Publishing and copy operations are available only to operator accounts.
+router.use(verifyToken, requireRole('operator'));
 
 /**
  * GET /api/operator/news
@@ -118,6 +118,8 @@ router.get('/news/:id', (req, res) => {
  */
 router.get('/news/:id/images', (req, res) => {
     try {
+        const news = queryGet("SELECT id FROM news WHERE id = ? AND status IN ('forwarded', 'published')", [req.params.id]);
+        if (!news) return res.status(404).json({ error: 'News not found.' });
         const images = queryAll(
             'SELECT id, image_path, is_selected FROM news_images WHERE news_id = ? ORDER BY id ASC',
             [req.params.id]
@@ -136,7 +138,7 @@ router.get('/news/:id/images', (req, res) => {
 router.get('/news/:id/images/zip', (req, res) => {
     try {
         const newsId = req.params.id;
-        const news = queryGet("SELECT id, headline_rewritten, headline FROM news WHERE id = ?", [newsId]);
+        const news = queryGet("SELECT id, headline_rewritten, headline FROM news WHERE id = ? AND status IN ('forwarded', 'published')", [newsId]);
         if (!news) {
             return res.status(404).json({ error: 'News not found.' });
         }
@@ -148,7 +150,7 @@ router.get('/news/:id/images/zip', (req, res) => {
 
         // Also fall back to image_path on the news row for old articles
         if (images.length === 0) {
-            const legacyNews = queryGet('SELECT image_path FROM news WHERE id = ?', [newsId]);
+            const legacyNews = queryGet("SELECT image_path FROM news WHERE id = ? AND status IN ('forwarded', 'published')", [newsId]);
             if (legacyNews && legacyNews.image_path) {
                 images.push({ image_path: legacyNews.image_path });
             }
@@ -216,7 +218,7 @@ router.post('/news/:id/copy', (req, res) => {
 router.get('/news/:id/image', (req, res) => {
     try {
         const news = queryGet(
-            'SELECT COALESCE(selected_image_path, image_path) as image_path FROM news WHERE id = ?',
+            "SELECT COALESCE(selected_image_path, image_path) as image_path FROM news WHERE id = ? AND status IN ('forwarded', 'published')",
             [req.params.id]
         );
         if (!news || !news.image_path) {

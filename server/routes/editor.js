@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
+const fs = require('fs');
 const { queryAll, queryGet, queryRun } = require('../db/init');
 const { verifyToken, requireRole } = require('../middleware/auth');
 const { rewriteArticle } = require('../services/aiRewriter');
+const { resolveUpload } = require('../storage');
 
 // All editor routes require editor role
 router.use(verifyToken, requireRole('editor'));
@@ -30,14 +32,14 @@ router.get('/news/raw', (req, res) => {
         const offset = (page - 1) * limit;
 
         const news = queryAll(`
-            SELECT n.id, n.headline, SUBSTR(n.body, 1, 200) as body,
+            SELECT n.id, n.headline, SUBSTR(n.body, 1, 200) as body, n.status,
                    n.category, n.city, n.image_path, n.selected_image_path, n.created_at,
                    n.headline_rewritten, n.body_rewritten,
                    u.full_name as reporter_name
             FROM news n
             JOIN users u ON n.reporter_id = u.id
-            WHERE n.status = 'raw'
-            ORDER BY n.created_at DESC
+            WHERE n.status IN ('raw', 'processed')
+            ORDER BY CASE WHEN n.status = 'raw' THEN 0 ELSE 1 END, n.created_at DESC
             LIMIT ? OFFSET ?
         `, [limit, offset]);
 
@@ -324,8 +326,8 @@ router.put('/news/:id/approve', (req, res) => {
         if (!news) {
             return res.status(404).json({ error: 'News not found.' });
         }
-        if (news.status === 'forwarded') {
-            return res.status(400).json({ error: 'News is already forwarded.' });
+        if (!['raw', 'processed'].includes(news.status)) {
+            return res.status(400).json({ error: 'Only raw or processed news can be approved.' });
         }
 
         const { headline_rewritten, body_rewritten } = req.body;
@@ -377,7 +379,7 @@ router.post('/news/:id/forward', (req, res) => {
 router.post('/news/:id/reject', (req, res) => {
     try {
         const { reason } = req.body;
-        const news = queryGet('SELECT * FROM news WHERE id = ?', [req.params.id]);
+        const news = queryGet("SELECT * FROM news WHERE id = ? AND status IN ('raw', 'processed')", [req.params.id]);
         if (!news) return res.status(404).json({ error: 'News not found.' });
 
         queryRun(
@@ -418,7 +420,23 @@ router.post('/news/:id/delete', (req, res) => {
         const news = queryGet("SELECT * FROM news WHERE id = ?", [req.params.id]);
         if (!news) return res.status(404).json({ error: 'News not found.' });
 
-        queryRun("UPDATE news SET status = 'deleted' WHERE id = ?", [news.id]);
+        const imagePaths = new Set(queryAll('SELECT image_path FROM news_images WHERE news_id = ?', [news.id]).map(row => row.image_path));
+        if (news.image_path) imagePaths.add(news.image_path);
+        if (news.selected_image_path) imagePaths.add(news.selected_image_path);
+
+        queryRun('DELETE FROM news_copies WHERE news_id = ?', [news.id]);
+        queryRun('DELETE FROM news_images WHERE news_id = ?', [news.id]);
+        queryRun('DELETE FROM news WHERE id = ?', [news.id]);
+
+        for (const imagePath of imagePaths) {
+            try {
+                const fullPath = resolveUpload(imagePath);
+                if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+            } catch (fileError) {
+                console.error('Editor delete image cleanup error:', fileError);
+            }
+        }
+
         res.json({ success: true, message: 'News deleted.' });
     } catch (err) {
         console.error('Editor delete error:', err);

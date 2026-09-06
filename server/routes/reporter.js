@@ -43,8 +43,8 @@ const upload = multer({
     }
 });
 
-// All reporter routes require authentication
-router.use(verifyToken);
+// Reporter workflow is available only to reporter accounts.
+router.use(verifyToken, requireRole('reporter'));
 
 /**
  * POST /api/reporter/news
