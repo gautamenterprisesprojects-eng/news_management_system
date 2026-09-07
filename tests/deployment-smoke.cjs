@@ -29,7 +29,15 @@ const { once } = require('node:events');
         req.on('data', chunk => { body += chunk; });
         req.on('end', () => {
             receivedExternal.push({ method: req.method, authorization: req.headers.authorization, body: JSON.parse(body) });
-            res.writeHead(201, { 'Content-Type': 'application/json' }).end('{"success":true,"hindiUrl":"https://thecliffnews.in/hindi/smoke-test"}');
+            res.writeHead(201, { 'Content-Type': 'application/json' }).end(JSON.stringify({
+                success: true,
+                externalId: receivedExternal[0].body.externalId,
+                hindiUrl: 'https://thecliffnews.in/hindi/smoke-test',
+                created: true,
+                updated: false,
+                partial: true,
+                status: 'PUBLISHED'
+            }));
         });
     });
     await new Promise(resolve => externalServer.listen(0, '127.0.0.1', resolve));
@@ -101,6 +109,8 @@ const { once } = require('node:events');
             enabled: true,
             delivered: true,
             status: 201,
+            externalId: `nms-${article.id}`,
+            responseExternalId: `nms-${article.id}`,
             postedLinks: { hindiUrl: 'https://thecliffnews.in/hindi/smoke-test', englishUrl: null }
         });
         assert.equal(receivedExternal.length, 1);
@@ -120,9 +130,20 @@ const { once } = require('node:events');
             })
         });
         assert.equal(callbackResponse.status, 200);
+        assert.deepEqual(await callbackResponse.json(), { success: true, externalId: `nms-${article.id}` });
         const postedDetail = await (await request(`/api/editor/news/${article.id}`)).json();
         assert.equal(postedDetail.external_hindi_url, 'https://thecliffnews.in/hindi/smoke-test');
         assert.equal(postedDetail.external_english_url, 'https://thecliffnews.in/english/smoke-test');
+        const missingCallbackResponse = await fetch(base + '/api/external-news/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer smoke-ingest-key' },
+            body: JSON.stringify({
+                externalId: 'nms-999999',
+                hindiUrl: 'https://thecliffnews.in/hindi/missing-test'
+            })
+        });
+        assert.equal(missingCallbackResponse.status, 404);
+        assert.deepEqual(await missingCallbackResponse.json(), { success: false, error: 'Article not found' });
         const exportedResponse = await fetch(base + '/api/external-news/forwarded', {
             headers: { Authorization: 'Bearer smoke-external-news-key' }
         });

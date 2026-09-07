@@ -55,6 +55,18 @@ function toAbsoluteImageUrl(imagePath, baseUrl) {
     return `${baseUrl}${imagePath.startsWith('/') ? '' : '/'}${imagePath}`;
 }
 
+function toExternalId(newsId) {
+    return `nms-${newsId}`;
+}
+
+function parseExternalNewsId(value) {
+    if (Number.isInteger(value)) return value;
+    const match = String(value || '').match(/^nms-(\d+)$/);
+    if (match) return Number(match[1]);
+    const numeric = Number(value);
+    return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+}
+
 function normalizeCategorySlug(category) {
     const normalized = String(category || '')
         .trim()
@@ -83,7 +95,7 @@ function toExternalPayload(news, baseUrl) {
     const imageUrl = toAbsoluteImageUrl(news.selected_image_path || news.image_path, baseUrl);
 
     return {
-        externalId: `nms-${news.id}`,
+        externalId: toExternalId(news.id),
         source: process.env.NMS_EXTERNAL_SOURCE || 'The Cliff News NMS',
         language,
         title,
@@ -159,34 +171,78 @@ function extractPostedLinks(data) {
     };
 }
 
+async function readResponseBody(response) {
+    const text = await response.text();
+    if (!text) return { text: '', json: null };
+
+    try {
+        return { text, json: JSON.parse(text) };
+    } catch {
+        return { text, json: null };
+    }
+}
+
+function logExternalDeliveryFailure({ status, responseBody, externalId }) {
+    console.error('External news delivery failed:', JSON.stringify({
+        httpStatus: status,
+        responseBody,
+        externalId,
+        failedAt: new Date().toISOString()
+    }));
+}
+
 async function deliverForwardedNews(news) {
     const endpoint = process.env.EXTERNAL_NEWS_INGEST_URL;
     if (!endpoint) return { enabled: false, delivered: false };
+    if (news.external_hindi_url && news.external_english_url) {
+        return {
+            enabled: true,
+            delivered: false,
+            skipped: true,
+            reason: 'Both external article URLs are already saved.',
+            externalId: toExternalId(news.id),
+            postedLinks: { hindiUrl: news.external_hindi_url, englishUrl: news.external_english_url }
+        };
+    }
 
     await refreshCategorySlugs(endpoint);
 
+    const payload = toExternalPayload(news, getBaseUrl());
     const headers = { 'Content-Type': 'application/json' };
     if (process.env.EXTERNAL_NEWS_INGEST_API_KEY) {
         headers.Authorization = `Bearer ${process.env.EXTERNAL_NEWS_INGEST_API_KEY}`;
     }
     const response = await fetch(endpoint, {
         method: 'POST', headers,
-        body: JSON.stringify(toExternalPayload(news, getBaseUrl()))
+        body: JSON.stringify(payload)
     });
-    if (!response.ok) throw new Error(`External API returned ${response.status}`);
+    const responseBody = await readResponseBody(response);
 
-    let responseBody = null;
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-        responseBody = await response.json();
+    if (!response.ok || responseBody.json?.success === false) {
+        logExternalDeliveryFailure({
+            status: response.status,
+            responseBody: responseBody.json || responseBody.text,
+            externalId: payload.externalId
+        });
+        throw new Error(`External API returned ${response.status}${responseBody.json?.success === false ? ' with success=false' : ''}`);
     }
 
     return {
         enabled: true,
         delivered: true,
         status: response.status,
-        postedLinks: extractPostedLinks(responseBody)
+        externalId: payload.externalId,
+        responseExternalId: firstString(responseBody.json?.externalId, responseBody.json?.external_id),
+        postedLinks: extractPostedLinks(responseBody.json)
     };
 }
 
-module.exports = { getBaseUrl, toExternalPayload, deliverForwardedNews, extractPostedLinks, normalizeCategorySlug };
+module.exports = {
+    getBaseUrl,
+    toExternalPayload,
+    deliverForwardedNews,
+    extractPostedLinks,
+    normalizeCategorySlug,
+    parseExternalNewsId,
+    toExternalId
+};

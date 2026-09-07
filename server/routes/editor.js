@@ -5,7 +5,7 @@ const { queryAll, queryGet, queryRun } = require('../db/init');
 const { verifyToken, requireRole } = require('../middleware/auth');
 const { rewriteArticle } = require('../services/aiRewriter');
 const { resolveUpload } = require('../storage');
-const { deliverForwardedNews } = require('../services/externalNews');
+const { deliverForwardedNews, parseExternalNewsId } = require('../services/externalNews');
 
 // All editor routes require editor role
 router.use(verifyToken, requireRole('editor'));
@@ -392,13 +392,17 @@ router.post('/news/:id/forward', async (req, res) => {
         try {
             externalDelivery = await deliverForwardedNews(externalNews);
             if (externalDelivery.postedLinks?.hindiUrl || externalDelivery.postedLinks?.englishUrl) {
+                const linkedNewsId = parseExternalNewsId(externalDelivery.responseExternalId || externalDelivery.externalId) || news.id;
+                if (linkedNewsId !== news.id) {
+                    throw new Error(`External API returned mismatched externalId ${externalDelivery.responseExternalId}`);
+                }
                 queryRun(
                     `UPDATE news
                      SET external_hindi_url = COALESCE(?, external_hindi_url),
                          external_english_url = COALESCE(?, external_english_url),
                          external_posted_at = datetime('now', 'localtime')
                      WHERE id = ?`,
-                    [externalDelivery.postedLinks.hindiUrl, externalDelivery.postedLinks.englishUrl, news.id]
+                    [externalDelivery.postedLinks.hindiUrl, externalDelivery.postedLinks.englishUrl, linkedNewsId]
                 );
             }
         } catch (deliveryError) {

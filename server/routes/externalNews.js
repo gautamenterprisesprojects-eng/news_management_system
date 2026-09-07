@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { queryAll, queryGet, queryRun } = require('../db/init');
-const { getBaseUrl, toExternalPayload, extractPostedLinks } = require('../services/externalNews');
+const { getBaseUrl, toExternalPayload, extractPostedLinks, parseExternalNewsId, toExternalId } = require('../services/externalNews');
 
 const router = express.Router();
 
@@ -25,14 +25,6 @@ function isCallbackAuthorized(req) {
     const expected = Buffer.from(configuredKey);
     const supplied = Buffer.from(suppliedKey);
     return expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
-}
-
-function parseNewsId(value) {
-    if (Number.isInteger(value)) return value;
-    const match = String(value || '').match(/^nms-(\d+)$/);
-    if (match) return Number(match[1]);
-    const numeric = Number(value);
-    return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
 }
 
 // GET /api/external-news/forwarded
@@ -71,7 +63,7 @@ function savePostedLinks(req, res) {
     }
 
     try {
-        const newsId = parseNewsId(req.body.newsId || req.body.id || req.body.externalId || req.body.external_id);
+        const newsId = parseExternalNewsId(req.body.newsId || req.body.id || req.body.externalId || req.body.external_id);
         if (!newsId) {
             return res.status(400).json({ error: 'newsId or externalId is required.' });
         }
@@ -83,7 +75,7 @@ function savePostedLinks(req, res) {
 
         const news = queryGet('SELECT id FROM news WHERE id = ?', [newsId]);
         if (!news) {
-            return res.status(404).json({ error: 'News not found.' });
+            return res.status(404).json({ success: false, error: 'Article not found' });
         }
 
         queryRun(
@@ -95,7 +87,7 @@ function savePostedLinks(req, res) {
             [postedLinks.hindiUrl, postedLinks.englishUrl, newsId]
         );
 
-        res.json({ success: true, newsId, postedLinks });
+        res.json({ success: true, externalId: toExternalId(newsId) });
     } catch (err) {
         console.error('External post-results callback error:', err);
         res.status(500).json({ error: 'Failed to save external posted links.' });
