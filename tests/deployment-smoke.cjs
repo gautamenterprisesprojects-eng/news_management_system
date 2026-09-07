@@ -13,6 +13,18 @@ const { once } = require('node:events');
     const password = crypto.randomBytes(24).toString('hex');
     const receivedExternal = [];
     const externalServer = http.createServer((req, res) => {
+        if (req.method === 'GET' && req.url === '/api/categories') {
+            res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({
+                success: true,
+                categories: [
+                    { slug: 'national', isActive: true },
+                    { slug: 'regional', isActive: true },
+                    { slug: 'sports', isActive: true }
+                ]
+            }));
+            return;
+        }
+
         let body = '';
         req.on('data', chunk => { body += chunk; });
         req.on('end', () => {
@@ -95,6 +107,7 @@ const { once } = require('node:events');
         assert.equal(receivedExternal[0].method, 'POST');
         assert.equal(receivedExternal[0].authorization, 'Bearer smoke-ingest-key');
         assert.equal(receivedExternal[0].body.externalId, `nms-${article.id}`);
+        assert.equal(receivedExternal[0].body.category, 'regional');
         assert.equal(receivedExternal[0].body.image.url, 'https://nms.test' + detail.image_path);
         const forwarded = await (await request('/api/editor/news/forwarded')).json();
         assert.ok(forwarded.news.some(item => item.id === article.id && item.external_hindi_url === 'https://thecliffnews.in/hindi/smoke-test'));
@@ -121,6 +134,7 @@ const { once } = require('node:events');
         assert.equal(exportedArticle.body, 'Edited test body.');
         assert.equal(exportedArticle.reporterName, 'Test reporter');
         assert.equal(exportedArticle.place, 'Test City');
+        assert.equal(exportedArticle.category, 'regional');
         assert.equal(exportedArticle.image.altText, 'Edited test');
         assert.match(exportedArticle.image.url, /\/uploads\//);
         token = operatorToken;
