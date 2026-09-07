@@ -74,8 +74,8 @@ router.post('/news', upload.array('images', 10), (req, res) => {
             req.files.forEach((file, idx) => {
                 const fp = `/uploads/${file.filename}`;
                 queryRun(
-                    'INSERT INTO news_images (news_id, image_path, is_selected) VALUES (?, ?, ?)',
-                    [newsId, fp, idx === 0 ? 1 : 0]
+                    'INSERT INTO news_images (news_id, image_path, is_selected, sort_order) VALUES (?, ?, ?, ?)',
+                    [newsId, fp, idx === 0 ? 1 : 0, idx]
                 );
             });
         }

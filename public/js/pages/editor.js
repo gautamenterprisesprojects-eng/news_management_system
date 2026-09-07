@@ -370,23 +370,8 @@ async function openRawNewsDetail(id) {
             ` : ''}
         `;
 
-        // Build editor image picker if multiple images available
         let extraHtml = '';
-        if (news.images && news.images.length > 1) {
-            extraHtml += `
-                <div class="editor-image-picker">
-                    <div class="editor-image-picker-label">${icon('photos', 14)} Choose cover image (${news.images.length} photos)</div>
-                    <div class="editor-image-grid" id="editorImageGrid-${id}">
-                        ${news.images.map(img => `
-                            <div class="editor-img-tile ${img.is_selected ? 'selected' : ''}" onclick="selectEditorImage(${id}, ${img.id}, this)">
-                                <img src="${img.image_path}" alt="">
-                                ${img.is_selected ? `<div class="editor-img-selected-badge">${icon('check', 10)} Cover</div>` : ''}
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        }
+        if (news.images && news.images.length > 1) extraHtml += renderEditorImagePicker(news, id);
         if (hasRewrite) {
             extraHtml += `
                 <div class="processed-review-block">
@@ -409,6 +394,7 @@ async function openRawNewsDetail(id) {
             extraHtml,
             actionsHtml
         });
+        initEditorImageSorter(id);
     } catch (err) {
         showToast(t('common.error'), 'error');
     }
@@ -422,6 +408,11 @@ async function openProcessedNewsDetail(id) {
         // Keep the reporter's original Kacchi Khabar visible beside the final
         // rewrite. The rewrite is stored separately and never replaces it.
         let extraHtml = `
+            <div class="processed-review-block">
+                <div class="processed-review-label">${icon('bot', 14)} ${t('editor.rewritten')}</div>
+                <h2 class="processed-edit-headline editable-news-field" contenteditable="true" spellcheck="true" data-placeholder="Edit headline">${escapeHtml(news.headline_rewritten || news.headline)}</h2>
+                <div class="processed-edit-body editable-news-field" contenteditable="true" spellcheck="true" data-placeholder="Edit article text">${escapeHtml(news.body_rewritten || news.body)}</div>
+            </div>
             <div class="raw-source-review">
                 <div class="raw-compare-label">${t('editor.raw_title')}</div>
                 <h3>${escapeHtml(news.headline)}</h3>
@@ -429,19 +420,7 @@ async function openProcessedNewsDetail(id) {
             </div>
         `;
         if (news.images && news.images.length > 0) {
-            extraHtml += `
-                <div class="editor-image-picker" style="margin-top:24px; padding-top:16px; border-top:1px solid var(--border-color);">
-                    <div class="editor-image-picker-label" style="font-size:0.9rem; font-weight:600; color:var(--text-secondary); margin-bottom:12px;">${icon('photos', 14)} Cover Image Selection (${news.images.length})</div>
-                    <div class="editor-image-grid" id="editorImageGrid-${id}" style="display:flex; flex-wrap:wrap; gap:12px;">
-                        ${news.images.map(img => `
-                            <div class="editor-img-tile ${img.is_selected ? 'selected' : ''}" onclick="selectEditorImage(${id}, ${img.id}, this)" style="cursor:pointer; position:relative; width:100px; height:100px; border-radius:8px; overflow:hidden; border:2px solid ${img.is_selected ? 'var(--accent-blue)' : 'transparent'}; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                                <img src="${img.image_path}" style="width:100%; height:100%; object-fit:cover;">
-                                ${img.is_selected ? `<div class="editor-img-selected-badge" style="position:absolute; bottom:0; left:0; right:0; background:var(--accent-blue); color:white; font-size:10px; text-align:center; padding:2px;">${icon('check', 10)} Cover</div>` : ''}
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
+            extraHtml += renderEditorImagePicker(news, id);
         }
 
         const actionsHtml = news.status === 'raw' ? `
@@ -458,9 +437,8 @@ async function openProcessedNewsDetail(id) {
         `;
 
         showArticleModal({
-            title: `${t('editor.status_processed')}`,
-            headline: news.headline_rewritten || news.headline,
-            body: news.body_rewritten || news.body,
+            headline: '',
+            body: '',
             extraHtml: extraHtml,
             image_path: news.selected_image_path || news.image_path,
             category: news.category,
@@ -470,10 +448,30 @@ async function openProcessedNewsDetail(id) {
             actionsHtml
         });
 
-        enableProcessedNewsEditing();
+        initEditorImageSorter(id);
     } catch (err) {
         showToast(t('common.error'), 'error');
     }
+}
+
+function renderEditorImagePicker(news, id) {
+    const images = news.images || [];
+    if (!images.length) return '';
+
+    return `
+        <div class="editor-image-picker">
+            <div class="editor-image-picker-label">${icon('photos', 14)} Cover Image & Sequence (${images.length} photos)</div>
+            <div class="editor-image-grid sortable-image-grid" id="editorImageGrid-${id}">
+                ${images.map((img, idx) => `
+                    <div class="editor-img-tile ${img.is_selected ? 'selected' : ''}" data-image-id="${img.id}" tabindex="0" role="button" aria-label="Image ${idx + 1}">
+                        <img src="${img.image_path}" alt="">
+                        <div class="editor-img-order-badge">${idx + 1}</div>
+                        ${img.is_selected ? `<div class="editor-img-selected-badge">${icon('check', 10)} Cover</div>` : ''}
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
 }
 
 function enableProcessedNewsEditing() {
@@ -517,39 +515,93 @@ function getProcessedNewsEditPayload() {
     };
 }
 
-async function selectEditorImage(newsId, imageId, el) {
+function initEditorImageSorter(newsId) {
+    const grid = document.getElementById(`editorImageGrid-${newsId}`);
+    if (!grid || grid.dataset.sorterReady) return;
+    grid.dataset.sorterReady = 'true';
+
+    let draggedTile = null;
+    let startX = 0;
+    let startY = 0;
+    let hasMoved = false;
+
+    grid.addEventListener('pointerdown', (event) => {
+        const tile = event.target.closest('.editor-img-tile');
+        if (!tile || !grid.contains(tile)) return;
+        draggedTile = tile;
+        startX = event.clientX;
+        startY = event.clientY;
+        hasMoved = false;
+        tile.setPointerCapture(event.pointerId);
+    });
+
+    grid.addEventListener('pointermove', (event) => {
+        if (!draggedTile) return;
+        const moved = Math.abs(event.clientX - startX) + Math.abs(event.clientY - startY);
+        if (moved < 8 && !hasMoved) return;
+        hasMoved = true;
+        draggedTile.classList.add('dragging');
+        event.preventDefault();
+
+        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.editor-img-tile');
+        if (!target || target === draggedTile || target.parentElement !== grid) return;
+
+        const tiles = [...grid.querySelectorAll('.editor-img-tile')];
+        const draggedIndex = tiles.indexOf(draggedTile);
+        const targetIndex = tiles.indexOf(target);
+        grid.insertBefore(draggedTile, draggedIndex < targetIndex ? target.nextSibling : target);
+        updateEditorImageOrderBadges(grid);
+    });
+
+    grid.addEventListener('pointerup', async (event) => {
+        if (!draggedTile) return;
+        const tile = draggedTile;
+        draggedTile = null;
+
+        try {
+            tile.releasePointerCapture(event.pointerId);
+        } catch (err) {
+            // The pointer may already be released by the browser.
+        }
+
+        tile.classList.remove('dragging');
+        if (hasMoved) {
+            await saveEditorImageOrder(newsId, grid);
+        } else {
+            await selectEditorImage(newsId, Number(tile.dataset.imageId), tile);
+        }
+    });
+
+    grid.addEventListener('pointercancel', () => {
+        if (draggedTile) draggedTile.classList.remove('dragging');
+        draggedTile = null;
+    });
+}
+
+function updateEditorImageOrderBadges(grid) {
+    grid.querySelectorAll('.editor-img-tile').forEach((tile, idx) => {
+        const badge = tile.querySelector('.editor-img-order-badge');
+        if (badge) badge.textContent = idx + 1;
+    });
+}
+
+async function saveEditorImageOrder(newsId, grid) {
+    const imageIds = [...grid.querySelectorAll('.editor-img-tile')]
+        .map(tile => Number(tile.dataset.imageId))
+        .filter(Number.isInteger);
+
     try {
-        const result = await api(`/editor/news/${newsId}/images/select`, {
+        const result = await api(`/editor/news/${newsId}/images/reorder`, {
             method: 'POST',
-            body: JSON.stringify({ image_id: imageId })
+            body: JSON.stringify({ image_ids: imageIds })
         });
+
         if (result.error) {
             showToast(result.error, 'error');
             return;
         }
-        
-        // Update UI locally
-        const grid = document.getElementById(`editorImageGrid-${newsId}`);
-        if (grid) {
-            grid.querySelectorAll('.editor-img-tile').forEach(t => {
-                t.classList.remove('selected');
-                const badge = t.querySelector('.editor-img-selected-badge');
-                if (badge) badge.remove();
-                t.style.border = '2px solid transparent';
-            });
-            el.classList.add('selected');
-            el.style.border = '2px solid var(--accent-blue)';
-            el.insertAdjacentHTML('beforeend', `<div class="editor-img-selected-badge" style="position:absolute; bottom:0; left:0; right:0; background:var(--accent-blue); color:white; font-size:10px; text-align:center; padding:2px;">${icon('check', 10)} Cover</div>`);
-        }
-        showToast('Image selected successfully', 'success');
-        
-        const modalImg = document.querySelector('.modal-image');
-        if (modalImg && result.selected_image_path) {
-            modalImg.src = result.selected_image_path;
-        }
 
-        if (document.getElementById('processedNewsList')) loadProcessedNews();
-        if (document.getElementById('publishedNewsList')) loadPublishedNews();
+        showToast('Image sequence saved', 'success');
     } catch (err) {
         showToast(t('common.error'), 'error');
     }

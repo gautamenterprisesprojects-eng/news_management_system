@@ -101,7 +101,7 @@ router.get('/news/:id', (req, res) => {
 
         // Attach all images
         const images = queryAll(
-            'SELECT id, image_path, is_selected FROM news_images WHERE news_id = ? ORDER BY id ASC',
+            'SELECT id, image_path, is_selected, sort_order FROM news_images WHERE news_id = ? ORDER BY sort_order ASC, id ASC',
             [news.id]
         );
 
@@ -121,7 +121,7 @@ router.get('/news/:id/images', (req, res) => {
         const news = queryGet("SELECT id FROM news WHERE id = ? AND status IN ('forwarded', 'published')", [req.params.id]);
         if (!news) return res.status(404).json({ error: 'News not found.' });
         const images = queryAll(
-            'SELECT id, image_path, is_selected FROM news_images WHERE news_id = ? ORDER BY id ASC',
+            'SELECT id, image_path, is_selected, sort_order FROM news_images WHERE news_id = ? ORDER BY sort_order ASC, id ASC',
             [req.params.id]
         );
         res.json({ images });
@@ -144,7 +144,7 @@ router.get('/news/:id/images/zip', (req, res) => {
         }
 
         const images = queryAll(
-            'SELECT image_path FROM news_images WHERE news_id = ? ORDER BY id ASC',
+            'SELECT image_path FROM news_images WHERE news_id = ? ORDER BY sort_order ASC, id ASC',
             [newsId]
         );
 

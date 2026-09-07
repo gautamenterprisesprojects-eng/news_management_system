@@ -786,6 +786,13 @@ input, textarea, select, button {
     border-radius: var(--radius-sm);
 }
 
+.btn-disabled,
+.btn:disabled {
+    opacity: 0.58;
+    cursor: not-allowed;
+    transform: none;
+}
+
 .btn-full {
     width: 100%;
 }
@@ -2003,6 +2010,11 @@ select.form-input {
     gap: 8px;
 }
 
+.sortable-image-grid {
+    touch-action: none;
+    user-select: none;
+}
+
 .editor-img-tile {
     position: relative;
     width: 80px;
@@ -2012,6 +2024,12 @@ select.form-input {
     cursor: pointer;
     border: 2.5px solid transparent;
     transition: border-color 0.15s, transform 0.15s;
+}
+
+.editor-img-tile.dragging {
+    opacity: 0.75;
+    transform: scale(1.06);
+    z-index: 2;
 }
 
 .editor-img-tile img {
@@ -2046,6 +2064,22 @@ select.form-input {
     align-items: center;
     justify-content: center;
     gap: 3px;
+}
+
+.editor-img-order-badge {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.82);
+    color: #ffffff;
+    font-size: 0.66rem;
+    font-weight: 800;
+    line-height: 20px;
+    text-align: center;
 }
 
 .processed-review-block {

@@ -286,19 +286,38 @@ async function loadMyNews() {
 }
 
 function renderReporterExternalLinks(news) {
-    const links = [
-        news.external_hindi_url ? `<button class="btn btn-secondary btn-xs" onclick="copyReporterArticleLink('${encodeURIComponent(news.external_hindi_url)}', 'Hindi')">${icon('copy', 12)} Copy Hindi link</button>` : '',
-        news.external_english_url ? `<button class="btn btn-secondary btn-xs" onclick="copyReporterArticleLink('${encodeURIComponent(news.external_english_url)}', 'English')">${icon('copy', 12)} Copy English link</button>` : ''
-    ].filter(Boolean);
+    const primaryUrl = news.external_hindi_url || news.external_english_url;
+    const buttons = [];
 
-    if (!links.length) return '';
-    return `<div class="news-card-actions-row">${links.join('')}</div>`;
+    if (primaryUrl) {
+        buttons.push(`<button class="btn btn-secondary btn-xs" onclick="copyReporterArticleLink('${encodeURIComponent(primaryUrl)}')">${icon('copy', 12)} Copy URL</button>`);
+    } else {
+        buttons.push(`<button class="btn btn-secondary btn-xs btn-disabled" type="button" disabled title="URL is available after publishing">${icon('copy', 12)} URL pending</button>`);
+    }
+
+    if (news.external_hindi_url && news.external_english_url) {
+        buttons.push(`<button class="btn btn-secondary btn-xs" onclick="copyReporterArticleLink('${encodeURIComponent(news.external_english_url)}')">${icon('copy', 12)} EN URL</button>`);
+    }
+
+    return `<div class="news-card-actions-row">${buttons.join('')}</div>`;
 }
 
-async function copyReporterArticleLink(url, language) {
+async function copyReporterArticleLink(url) {
+    const decodedUrl = decodeURIComponent(url);
     try {
-        await navigator.clipboard.writeText(decodeURIComponent(url));
-        showToast(`${language} link copied`, 'success');
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(decodedUrl);
+        } else {
+            const temp = document.createElement('textarea');
+            temp.value = decodedUrl;
+            temp.style.position = 'fixed';
+            temp.style.left = '-9999px';
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand('copy');
+            document.body.removeChild(temp);
+        }
+        showToast('URL copied', 'success');
     } catch (err) {
         showToast(t('common.error'), 'error');
     }

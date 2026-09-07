@@ -48,10 +48,10 @@ function showArticleModal(options) {
                     <div class="modal-meta">
                         ${metaItems.join('')}
                     </div>
-                    <h2 class="modal-headline">${escapeHtml(headline)}</h2>
+                    ${headline ? `<h2 class="modal-headline">${escapeHtml(headline)}</h2>` : ''}
                     ${actionsHtml ? `<div class="modal-actions-top">${actionsHtml}</div>` : ''}
                     ${extraHtml ? `<div class="modal-extra-info">${extraHtml}</div>` : ''}
-                    <div class="modal-article">${escapeHtml(body)}</div>
+                    ${body ? `<div class="modal-article">${escapeHtml(body)}</div>` : ''}
                     ${actionsHtml ? `<div class="modal-actions modal-actions-bottom">${actionsHtml}</div>` : ''}
                 </div>
             </div>

@@ -167,7 +167,7 @@ router.get('/news/:id', (req, res) => {
         }
 
         // Attach all images
-        const images = queryAll('SELECT id, image_path, is_selected FROM news_images WHERE news_id = ? ORDER BY id ASC', [news.id]);
+        const images = queryAll('SELECT id, image_path, is_selected, sort_order FROM news_images WHERE news_id = ? ORDER BY sort_order ASC, id ASC', [news.id]);
         news.images = images;
 
         res.json(news);
@@ -184,13 +184,50 @@ router.get('/news/:id', (req, res) => {
 router.get('/news/:id/images', (req, res) => {
     try {
         const images = queryAll(
-            'SELECT id, image_path, is_selected FROM news_images WHERE news_id = ? ORDER BY id ASC',
+            'SELECT id, image_path, is_selected, sort_order FROM news_images WHERE news_id = ? ORDER BY sort_order ASC, id ASC',
             [req.params.id]
         );
         res.json({ images });
     } catch (err) {
         console.error('Editor get images error:', err);
         res.status(500).json({ error: 'Failed to fetch images.' });
+    }
+});
+
+/**
+ * POST /api/editor/news/:id/images/reorder
+ * Body: { image_ids: [] } - persist editor-defined image sequence.
+ */
+router.post('/news/:id/images/reorder', (req, res) => {
+    try {
+        const newsId = req.params.id;
+        const imageIds = Array.isArray(req.body.image_ids)
+            ? req.body.image_ids.map(Number).filter(Number.isInteger)
+            : [];
+        const currentImages = queryAll(
+            'SELECT id FROM news_images WHERE news_id = ? ORDER BY sort_order ASC, id ASC',
+            [newsId]
+        );
+        const currentIds = currentImages.map(img => img.id);
+
+        if (imageIds.length !== currentIds.length) {
+            return res.status(400).json({ error: 'All article images must be included in the new order.' });
+        }
+
+        const currentSet = new Set(currentIds);
+        const newSet = new Set(imageIds);
+        if (newSet.size !== imageIds.length || imageIds.some(id => !currentSet.has(id))) {
+            return res.status(400).json({ error: 'Invalid image order for this article.' });
+        }
+
+        imageIds.forEach((imageId, idx) => {
+            queryRun('UPDATE news_images SET sort_order = ? WHERE id = ? AND news_id = ?', [idx, imageId, newsId]);
+        });
+
+        res.json({ success: true, image_ids: imageIds });
+    } catch (err) {
+        console.error('Editor reorder images error:', err);
+        res.status(500).json({ error: 'Failed to reorder images.' });
     }
 });
 

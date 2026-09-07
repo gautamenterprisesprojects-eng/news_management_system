@@ -82,6 +82,7 @@ async function initDatabase() {
             news_id INTEGER NOT NULL,
             image_path TEXT NOT NULL,
             is_selected INTEGER DEFAULT 0,
+            sort_order INTEGER DEFAULT 0,
             uploaded_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
     `);
@@ -98,7 +99,8 @@ async function initDatabase() {
             external_hindi_url: 'TEXT',
             external_english_url: 'TEXT',
             external_posted_at: 'TEXT'
-        }
+        },
+        news_images: { sort_order: 'INTEGER DEFAULT 0' }
     };
     db.transaction(() => {
         for (const [table, columns] of Object.entries(additions)) {
@@ -138,6 +140,7 @@ async function initDatabase() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_news_reporter ON news(reporter_id)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_news_copies_news ON news_copies(news_id)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_news_images_order ON news_images(news_id, sort_order, id)`);
 
     // ============================================================
     // SEED: Default admin account (admin / admin123)
