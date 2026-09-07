@@ -156,7 +156,9 @@ async function loadRawNews(append = false) {
         const data = await api(`/editor/news/raw?page=${_rawPage}`);
         const news = data.news || [];
         
-        _hasMoreRaw = news.length >= 20;
+        // The raw endpoint returns the complete short-retention history. This
+        // prevents processed raw articles being hidden on a later page.
+        _hasMoreRaw = false;
 
         if (append) {
             _rawNewsData = [..._rawNewsData, ...news];
@@ -417,9 +419,17 @@ async function openProcessedNewsDetail(id) {
         const news = await api(`/editor/news/${id}`);
         if (news.error) { showToast(news.error, 'error'); return; }
 
-        let extraHtml = '';
+        // Keep the reporter's original Kacchi Khabar visible beside the final
+        // rewrite. The rewrite is stored separately and never replaces it.
+        let extraHtml = `
+            <div class="raw-source-review">
+                <div class="raw-compare-label">${t('editor.raw_title')}</div>
+                <h3>${escapeHtml(news.headline)}</h3>
+                <div class="raw-source-review-body">${escapeHtml(news.body)}</div>
+            </div>
+        `;
         if (news.images && news.images.length > 0) {
-            extraHtml = `
+            extraHtml += `
                 <div class="editor-image-picker" style="margin-top:24px; padding-top:16px; border-top:1px solid var(--border-color);">
                     <div class="editor-image-picker-label" style="font-size:0.9rem; font-weight:600; color:var(--text-secondary); margin-bottom:12px;">${icon('photos', 14)} Cover Image Selection (${news.images.length})</div>
                     <div class="editor-image-grid" id="editorImageGrid-${id}" style="display:flex; flex-wrap:wrap; gap:12px;">
@@ -815,6 +825,8 @@ async function forwardNews(id) {
         closeArticleModal();
         showToast(t('editor.forward_success'), 'success');
         loadProcessedNews();
+        editorTab = 'forwarded';
+        renderEditorForwardedScreen();
     } catch (err) {
         showToast(t('common.error'), 'error');
     }
@@ -888,6 +900,27 @@ async function quickForwardNews(id) {
 
         showToast(t('editor.forward_success'), 'success');
         loadProcessedNews();
+        editorTab = 'forwarded';
+        renderEditorForwardedScreen();
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    }
+}
+
+function renderEditorExternalLinks(news) {
+    const links = [
+        news.external_hindi_url ? `<button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); copyExternalArticleLink('${encodeURIComponent(news.external_hindi_url)}', 'Hindi')">${icon('copy',12)} Copy Hindi link</button>` : '',
+        news.external_english_url ? `<button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); copyExternalArticleLink('${encodeURIComponent(news.external_english_url)}', 'English')">${icon('copy',12)} Copy English link</button>` : ''
+    ].filter(Boolean);
+
+    if (!links.length) return '';
+    return `<div class="news-card-actions-row">${links.join('')}</div>`;
+}
+
+async function copyExternalArticleLink(url, language) {
+    try {
+        await navigator.clipboard.writeText(decodeURIComponent(url));
+        showToast(`${language} link copied`, 'success');
     } catch (err) {
         showToast(t('common.error'), 'error');
     }
@@ -926,6 +959,7 @@ async function loadForwardedNews() {
                     <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); openPublishedNewsDetail(${n.id})">${icon('eye',12)} पूरी खबर पढ़ें</button>
                     <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deleteNews(${n.id}, 'forwarded')">${icon('trash',12)} डिलीट करें</button>
                 </div>
+                ${renderEditorExternalLinks(n)}
             </div>
         `).join('');
     } catch (err) {
@@ -1127,9 +1161,10 @@ async function openPublishedNewsDetail(id) {
         if (news.error) { showToast(news.error, 'error'); return; }
 
         const hasImages = news.images && news.images.length > 0;
-        let extraHtml = '';
+        let extraHtml = renderEditorExternalLinks(news);
         if (hasImages) {
             extraHtml = `
+                ${extraHtml}
                 <div class="editor-image-picker" style="margin-top:24px; padding-top:16px; border-top:1px solid var(--border-color);">
                     <div class="editor-image-picker-label">${icon('photos', 14)} Cover Image Selection (${news.images.length})</div>
                     <div class="editor-image-grid" id="editorImageGrid-${id}">

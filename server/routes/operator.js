@@ -21,7 +21,7 @@ router.get('/news', (req, res) => {
                    SUBSTR(COALESCE(n.body_rewritten, n.body), 1, 200) as body,
                    n.category, n.city,
                    COALESCE(n.selected_image_path, n.image_path) as image_path,
-                   n.forwarded_at
+                   n.forwarded_at, n.external_hindi_url, n.external_english_url
             FROM news n
             WHERE n.status = 'forwarded'
             ORDER BY n.forwarded_at DESC
@@ -83,7 +83,7 @@ router.get('/news/:id', (req, res) => {
                    n.category, n.tags, n.city,
                    COALESCE(n.selected_image_path, n.image_path) as image_path,
                    n.selected_image_path,
-                   n.ai_provider, n.forwarded_at,
+                   n.ai_provider, n.forwarded_at, n.external_hindi_url, n.external_english_url,
                    u.full_name as reporter_name
             FROM news n
             JOIN users u ON n.reporter_id = u.id

@@ -5,6 +5,7 @@ const { queryAll, queryGet, queryRun } = require('../db/init');
 const { verifyToken, requireRole } = require('../middleware/auth');
 const { rewriteArticle } = require('../services/aiRewriter');
 const { resolveUpload } = require('../storage');
+const { deliverForwardedNews } = require('../services/externalNews');
 
 // All editor routes require editor role
 router.use(verifyToken, requireRole('editor'));
@@ -27,10 +28,8 @@ router.get('/reporters', (req, res) => {
  */
 router.get('/news/raw', (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = 20;
-        const offset = (page - 1) * limit;
-
+        // This is the raw-submission history. Keep processed entries in this
+        // response so they remain visible (greyed out) after approval.
         const news = queryAll(`
             SELECT n.id, n.headline, SUBSTR(n.body, 1, 200) as body, n.status,
                    n.category, n.city, n.image_path, n.selected_image_path, n.created_at,
@@ -39,9 +38,8 @@ router.get('/news/raw', (req, res) => {
             FROM news n
             JOIN users u ON n.reporter_id = u.id
             WHERE n.status IN ('raw', 'processed')
-            ORDER BY CASE WHEN n.status = 'raw' THEN 0 ELSE 1 END, n.created_at DESC
-            LIMIT ? OFFSET ?
-        `, [limit, offset]);
+            ORDER BY n.created_at DESC
+        `);
 
         res.json({ news });
     } catch (err) {
@@ -80,7 +78,8 @@ router.get('/news/forwarded', (req, res) => {
             SELECT n.id, n.headline, n.headline_rewritten,
                    SUBSTR(COALESCE(n.body_rewritten, n.body), 1, 200) as body,
                    n.category, n.city, n.status, n.image_path, n.selected_image_path,
-                   n.forwarded_at, n.published_at, u.full_name as reporter_name
+                   n.forwarded_at, n.published_at, n.external_hindi_url, n.external_english_url,
+                   u.full_name as reporter_name
             FROM news n JOIN users u ON n.reporter_id = u.id
             WHERE n.forwarded_at IS NOT NULL
             ORDER BY n.forwarded_at DESC
@@ -373,7 +372,7 @@ router.put('/news/:id/approve', (req, res) => {
 /**
  * POST /api/editor/news/:id/forward
  */
-router.post('/news/:id/forward', (req, res) => {
+router.post('/news/:id/forward', async (req, res) => {
     try {
         const news = queryGet('SELECT * FROM news WHERE id = ? AND status = ?', [req.params.id, 'processed']);
         if (!news) {
@@ -385,7 +384,33 @@ router.post('/news/:id/forward', (req, res) => {
             [news.id]
         );
 
-        res.json({ message: 'News forwarded to operators.' });
+        const externalNews = queryGet(`
+            SELECT n.*, u.full_name AS reporter_name, u.name_hi, u.name_en
+            FROM news n JOIN users u ON u.id = n.reporter_id WHERE n.id = ?
+        `, [news.id]);
+        let externalDelivery;
+        try {
+            externalDelivery = await deliverForwardedNews(externalNews);
+            if (externalDelivery.postedLinks?.hindiUrl || externalDelivery.postedLinks?.englishUrl) {
+                queryRun(
+                    `UPDATE news
+                     SET external_hindi_url = COALESCE(?, external_hindi_url),
+                         external_english_url = COALESCE(?, external_english_url),
+                         external_posted_at = datetime('now', 'localtime')
+                     WHERE id = ?`,
+                    [externalDelivery.postedLinks.hindiUrl, externalDelivery.postedLinks.englishUrl, news.id]
+                );
+            }
+        } catch (deliveryError) {
+            // Do not lose the operator handoff when the remote service is temporarily down.
+            console.error('External news delivery error:', deliveryError.message);
+            externalDelivery = { enabled: true, delivered: false, error: deliveryError.message };
+        }
+
+        res.json({
+            message: externalDelivery?.delivered ? 'News forwarded to operators and external news API.' : 'News forwarded to operators.',
+            externalDelivery
+        });
     } catch (err) {
         console.error('Editor forward error:', err);
         res.status(500).json({ error: 'Failed to forward news.' });

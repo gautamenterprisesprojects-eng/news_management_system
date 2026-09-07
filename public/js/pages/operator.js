@@ -21,6 +21,25 @@ function renderOperator() {
     loadOperatorNews();
 }
 
+function renderOperatorExternalLinks(news) {
+    const links = [
+        news.external_hindi_url ? `<button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); copyExternalArticleLink('${encodeURIComponent(news.external_hindi_url)}', 'Hindi')">${icon('copy',12)} Copy Hindi link</button>` : '',
+        news.external_english_url ? `<button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); copyExternalArticleLink('${encodeURIComponent(news.external_english_url)}', 'English')">${icon('copy',12)} Copy English link</button>` : ''
+    ].filter(Boolean);
+
+    if (!links.length) return '';
+    return `<div class="news-card-actions-row">${links.join('')}</div>`;
+}
+
+async function copyExternalArticleLink(url, language) {
+    try {
+        await navigator.clipboard.writeText(decodeURIComponent(url));
+        showToast(`${language} link copied`, 'success');
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    }
+}
+
 async function loadOperatorNews() {
     const container = document.getElementById('operatorNewsList');
     try {
@@ -81,6 +100,7 @@ async function loadOperatorNews() {
                             </button>
                         ` : ''}
                     </div>
+                    ${renderOperatorExternalLinks(n)}
                 </div>
             `;
         }).join('');
@@ -156,7 +176,7 @@ async function openOperatorNewsDetail(id) {
         showArticleModal({
             headline: news.headline,
             body: news.body,
-            extraHtml: copiesHtml + galleryHtml,
+            extraHtml: copiesHtml + renderOperatorExternalLinks(news) + galleryHtml,
             image_path: news.image_path,
             category: news.category,
             city: news.city,

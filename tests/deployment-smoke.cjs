@@ -4,16 +4,30 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const http = require('node:http');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 
 (async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nms-smoke-'));
     const password = crypto.randomBytes(24).toString('hex');
+    const receivedExternal = [];
+    const externalServer = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', () => {
+            receivedExternal.push({ method: req.method, authorization: req.headers.authorization, body: JSON.parse(body) });
+            res.writeHead(201, { 'Content-Type': 'application/json' }).end('{"success":true,"hindiUrl":"https://thecliffnews.in/hindi/smoke-test"}');
+        });
+    });
+    await new Promise(resolve => externalServer.listen(0, '127.0.0.1', resolve));
+    const externalPort = externalServer.address().port;
     const child = spawn(process.execPath, ['server/index.js'], {
         env: { ...process.env, NODE_ENV: 'production', DATA_DIR: dataDir, PORT: '0', HOST: '127.0.0.1',
             JWT_SECRET: crypto.randomBytes(32).toString('hex'), ADMIN_INITIAL_PASSWORD: password,
-            ENABLE_NEWS_CLEANUP: 'false', GEMINI_API_KEY: '', DEEPSEEK_API_KEY: '' },
+            ENABLE_NEWS_CLEANUP: 'false', GEMINI_API_KEY: '', DEEPSEEK_API_KEY: '',
+            EXTERNAL_NEWS_API_KEY: 'smoke-external-news-key', NMS_PUBLIC_BASE_URL: 'https://nms.test',
+            EXTERNAL_NEWS_INGEST_URL: `http://127.0.0.1:${externalPort}/ingest`, EXTERNAL_NEWS_INGEST_API_KEY: 'smoke-ingest-key' },
         stdio: ['ignore', 'pipe', 'pipe']
     });
     let output = '';
@@ -70,11 +84,49 @@ const { once } = require('node:events');
         await request(`/api/editor/news/${article.id}/approve`, 'PUT', { headline_rewritten: 'Edited test', body_rewritten: 'Edited test body.' });
         const retainedRaw = await (await request('/api/editor/news/raw')).json();
         assert.ok(retainedRaw.news.some(item => item.id === article.id && item.status === 'processed'));
-        await request(`/api/editor/news/${article.id}/forward`, 'POST', {});
+        const forwardResponse = await (await request(`/api/editor/news/${article.id}/forward`, 'POST', {})).json();
+        assert.deepEqual(forwardResponse.externalDelivery, {
+            enabled: true,
+            delivered: true,
+            status: 201,
+            postedLinks: { hindiUrl: 'https://thecliffnews.in/hindi/smoke-test', englishUrl: null }
+        });
+        assert.equal(receivedExternal.length, 1);
+        assert.equal(receivedExternal[0].method, 'POST');
+        assert.equal(receivedExternal[0].authorization, 'Bearer smoke-ingest-key');
+        assert.equal(receivedExternal[0].body.externalId, `nms-${article.id}`);
+        assert.equal(receivedExternal[0].body.image.url, 'https://nms.test' + detail.image_path);
         const forwarded = await (await request('/api/editor/news/forwarded')).json();
-        assert.ok(forwarded.news.some(item => item.id === article.id));
+        assert.ok(forwarded.news.some(item => item.id === article.id && item.external_hindi_url === 'https://thecliffnews.in/hindi/smoke-test'));
+        const callbackResponse = await fetch(base + '/api/external-news/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer smoke-ingest-key' },
+            body: JSON.stringify({
+                externalId: `nms-${article.id}`,
+                englishUrl: 'https://thecliffnews.in/english/smoke-test'
+            })
+        });
+        assert.equal(callbackResponse.status, 200);
+        const postedDetail = await (await request(`/api/editor/news/${article.id}`)).json();
+        assert.equal(postedDetail.external_hindi_url, 'https://thecliffnews.in/hindi/smoke-test');
+        assert.equal(postedDetail.external_english_url, 'https://thecliffnews.in/english/smoke-test');
+        const exportedResponse = await fetch(base + '/api/external-news/forwarded', {
+            headers: { Authorization: 'Bearer smoke-external-news-key' }
+        });
+        assert.equal(exportedResponse.status, 200);
+        const exported = await exportedResponse.json();
+        const exportedArticle = exported.data.find(item => item.externalId === `nms-${article.id}`);
+        assert.ok(exportedArticle);
+        assert.equal(exportedArticle.title, 'Edited test');
+        assert.equal(exportedArticle.body, 'Edited test body.');
+        assert.equal(exportedArticle.reporterName, 'Test reporter');
+        assert.equal(exportedArticle.place, 'Test City');
+        assert.equal(exportedArticle.image.altText, 'Edited test');
+        assert.match(exportedArticle.image.url, /\/uploads\//);
         token = operatorToken;
         await request('/api/admin/users', 'GET', undefined, 403);
+        const operatorList = await (await request('/api/operator/news')).json();
+        assert.ok(operatorList.news.some(item => item.id === article.id && item.external_english_url === 'https://thecliffnews.in/english/smoke-test'));
         await request(`/api/operator/news/${article.id}/copy`, 'POST', {});
         const zip = await request(`/api/operator/news/${article.id}/images/zip`);
         assert.equal(zip.headers.get('content-type'), 'application/zip');
@@ -97,6 +149,7 @@ const { once } = require('node:events');
         console.log('PASS: fresh production startup, authentication, article workflow, image upload/download/ZIP, avatars, and API 404.');
     } finally {
         if (child.exitCode === null) { child.kill('SIGTERM'); await once(child, 'exit'); }
+        await new Promise(resolve => externalServer.close(resolve));
         console.log('Isolated test data: ' + dataDir);
     }
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -519,9 +519,30 @@ input, textarea, select, button {
 }
 
 .card.greyed-out {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+    opacity: 0.72;
+    filter: grayscale(0.8);
+}
+
+.raw-source-review {
+    margin: 16px 0;
+    padding: 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: var(--radius-md);
     background: #f8fafc;
-    border-color: #e2e8f0;
-    opacity: 0.75;
+}
+
+.raw-source-review h3 {
+    margin: 8px 0;
+    font-size: 1rem;
+}
+
+.raw-source-review-body {
+    white-space: pre-wrap;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.55;
 }
 
 .copied-badge {

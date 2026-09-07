@@ -64,6 +64,9 @@ async function initDatabase() {
             processed_at TEXT,
             forwarded_at TEXT,
             published_at TEXT,
+            external_hindi_url TEXT,
+            external_english_url TEXT,
+            external_posted_at TEXT,
             rejected_at TEXT,
             rejected_by INTEGER,
             reject_reason TEXT
@@ -86,7 +89,16 @@ async function initDatabase() {
     // Check the schema explicitly; do not hide failed migrations as duplicate columns.
     const additions = {
         users: { avatar_path: 'TEXT', email: 'TEXT', phone: 'TEXT', city: 'TEXT', name_hi: 'TEXT', name_en: 'TEXT', post: 'TEXT' },
-        news: { rejected_at: 'TEXT', rejected_by: 'INTEGER', reject_reason: 'TEXT', selected_image_path: 'TEXT', published_at: 'TEXT' }
+        news: {
+            rejected_at: 'TEXT',
+            rejected_by: 'INTEGER',
+            reject_reason: 'TEXT',
+            selected_image_path: 'TEXT',
+            published_at: 'TEXT',
+            external_hindi_url: 'TEXT',
+            external_english_url: 'TEXT',
+            external_posted_at: 'TEXT'
+        }
     };
     db.transaction(() => {
         for (const [table, columns] of Object.entries(additions)) {

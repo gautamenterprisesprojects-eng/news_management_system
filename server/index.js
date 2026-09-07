@@ -48,6 +48,7 @@ const operatorRoutes = require('./routes/operator');
 const reporterRoutes = require('./routes/reporter');
 const profileRoutes = require('./routes/profile');
 const publicRoutes = require('./routes/public');
+const externalNewsRoutes = require('./routes/externalNews');
 
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
@@ -57,6 +58,7 @@ app.use('/api/reporter', reporterRoutes);
 app.use('/api/transliterate', require('./routes/transliterate'));
 app.use('/api/profile', profileRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api/external-news', externalNewsRoutes);
 
 // Background cron job: every hour, delete news older than 48 hours
 if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
