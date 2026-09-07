@@ -285,6 +285,25 @@ async function loadMyNews() {
     }
 }
 
+function renderReporterExternalLinks(news) {
+    const links = [
+        news.external_hindi_url ? `<button class="btn btn-secondary btn-xs" onclick="copyReporterArticleLink('${encodeURIComponent(news.external_hindi_url)}', 'Hindi')">${icon('copy', 12)} Copy Hindi link</button>` : '',
+        news.external_english_url ? `<button class="btn btn-secondary btn-xs" onclick="copyReporterArticleLink('${encodeURIComponent(news.external_english_url)}', 'English')">${icon('copy', 12)} Copy English link</button>` : ''
+    ].filter(Boolean);
+
+    if (!links.length) return '';
+    return `<div class="news-card-actions-row">${links.join('')}</div>`;
+}
+
+async function copyReporterArticleLink(url, language) {
+    try {
+        await navigator.clipboard.writeText(decodeURIComponent(url));
+        showToast(`${language} link copied`, 'success');
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    }
+}
+
 /* ── Approved tab ────────────────────────────────────────── */
 
 function renderReporterApprovedTab() {
@@ -333,6 +352,7 @@ async function loadReporterApprovedNews() {
                     ${n.city ? `<span class="news-card-meta-item">${icon('pin', 12)} ${n.city}</span>` : ''}
                     <span class="news-card-meta-item">${icon('clock', 12)} ${formatDate(n.published_at || n.forwarded_at || n.processed_at)}</span>
                 </div>
+                ${renderReporterExternalLinks(n)}
             </div>
         `).join('');
     } catch (err) {

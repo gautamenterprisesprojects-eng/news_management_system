@@ -112,6 +112,7 @@ router.get('/news/approved', (req, res) => {
         const news = queryAll(`
             SELECT n.id, n.headline, n.headline_rewritten, n.status, n.category, n.city,
                    n.processed_at, n.forwarded_at, n.published_at,
+                   n.external_hindi_url, n.external_english_url,
                    COALESCE(n.selected_image_path, n.image_path) as image_path
             FROM news n
             WHERE n.reporter_id = ? AND n.status IN ('processed','forwarded','published')

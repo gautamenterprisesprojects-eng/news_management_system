@@ -168,6 +168,12 @@ const { once } = require('node:events');
         assert.ok((await zip.arrayBuffer()).byteLength > 0);
         await request(`/api/operator/news/${article.id}/image`);
         token = reporterToken;
+        const reporterApproved = await (await request('/api/reporter/news/approved')).json();
+        assert.ok(reporterApproved.news.some(item =>
+            item.id === article.id
+            && item.external_hindi_url === 'https://thecliffnews.in/hindi/smoke-test'
+            && item.external_english_url === 'https://thecliffnews.in/english/smoke-test'
+        ));
         const profile = new FormData();
         for (const k of ['full_name', 'name_hi', 'name_en', 'post', 'email', 'phone', 'city']) profile.set(k, 'Smoke test');
         profile.append('avatar', new Blob([bytes], { type: 'image/png' }), 'avatar.png');
