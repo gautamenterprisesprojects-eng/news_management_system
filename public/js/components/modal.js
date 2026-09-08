@@ -63,6 +63,7 @@ function showArticleModal(options) {
 
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     document.body.style.overflow = 'hidden';
+    initArticleModalGestures();
     applyLanguage();
 }
 
@@ -84,6 +85,54 @@ function closeModalOutside(event) {
     if (event.target.classList.contains('modal-overlay')) {
         closeArticleModal();
     }
+}
+
+function initArticleModalGestures() {
+    const modal = document.getElementById('articleModal');
+    const content = modal?.querySelector('.modal-content');
+    const dragTargets = modal?.querySelectorAll('.modal-image, .modal-handle');
+    if (!modal || !content || !dragTargets?.length) return;
+
+    let startY = 0;
+    let currentY = 0;
+    let dragging = false;
+
+    const begin = (event) => {
+        const point = event.touches ? event.touches[0] : event;
+        startY = point.clientY;
+        currentY = startY;
+        dragging = true;
+        content.classList.add('modal-dragging');
+    };
+
+    const move = (event) => {
+        if (!dragging) return;
+        const point = event.touches ? event.touches[0] : event;
+        currentY = point.clientY;
+        const distance = Math.max(0, currentY - startY);
+        if (distance > 0) {
+            content.style.transform = `translateY(${Math.min(distance, 140)}px)`;
+        }
+    };
+
+    const end = () => {
+        if (!dragging) return;
+        dragging = false;
+        content.classList.remove('modal-dragging');
+        const distance = currentY - startY;
+        content.style.transform = '';
+        if (distance > 80) closeArticleModal();
+    };
+
+    dragTargets.forEach(target => {
+        target.addEventListener('touchstart', begin, { passive: true });
+        target.addEventListener('touchmove', move, { passive: true });
+        target.addEventListener('touchend', end);
+        target.addEventListener('pointerdown', begin);
+        target.addEventListener('pointermove', move);
+        target.addEventListener('pointerup', end);
+        target.addEventListener('pointercancel', end);
+    });
 }
 
 /**

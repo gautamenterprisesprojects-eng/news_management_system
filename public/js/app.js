@@ -18,17 +18,25 @@ async function api(endpoint, options = {}) {
     if (!options.isFormData) {
         headers['Content-Type'] = 'application/json';
     }
+    headers['Cache-Control'] = 'no-cache';
+    headers['Pragma'] = 'no-cache';
 
+    const method = (options.method || 'GET').toUpperCase();
+    const apiUrl = new URL(`/api${endpoint}`, window.location.origin);
+    if (method === 'GET') {
+        apiUrl.searchParams.set('_ts', Date.now().toString());
+    }
     const fetchOptions = {
         ...options,
-        headers
+        headers,
+        cache: 'no-store'
     };
 
     // Remove our custom flag
     delete fetchOptions.isFormData;
 
     try {
-        const res = await fetch(`/api${endpoint}`, fetchOptions);
+        const res = await fetch(apiUrl.pathname + apiUrl.search, fetchOptions);
 
         if (res.status === 401) {
             logout();

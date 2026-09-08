@@ -430,6 +430,22 @@ input, textarea, select, button {
     margin-top: 2px;
 }
 
+.editor-refresh-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+    padding: 8px 0;
+}
+
+.editor-refresh-toolbar span {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-align: right;
+}
+
 /* ============================================================
    BOTTOM NAV
    ============================================================ */
@@ -786,6 +802,34 @@ input, textarea, select, button {
     opacity: 0.55;
     cursor: not-allowed;
     transform: none;
+}
+
+.btn-loading-progress {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.btn-progress-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--progress, 0%);
+    background: rgba(255, 255, 255, 0.24);
+    z-index: -1;
+    transition: width 160ms linear;
+}
+
+.btn-progress-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.btn-website-forward {
+    border-color: #bae6fd;
+    color: #0369a1;
+    background: #f0f9ff;
 }
 
 .btn-primary {
@@ -1167,6 +1211,10 @@ select.form-input {
     box-shadow: var(--shadow-modal);
 }
 
+.modal-content.modal-dragging {
+    transition: none;
+}
+
 .modal-handle {
     width: 40px;
     height: 4px;
@@ -1200,8 +1248,9 @@ select.form-input {
 
 @media (max-width: 767px) {
     .modal-close {
-        position: fixed;
-        top: 24px;
+        position: sticky;
+        top: calc(var(--safe-area-top) + 8px);
+        margin: 8px 12px -44px auto;
         right: 16px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         z-index: 1000;
@@ -1314,6 +1363,29 @@ select.form-input {
 
 .modal-actions .btn svg {
     flex: 0 0 auto;
+}
+
+.external-links-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.external-copy-btn {
+    flex: 1 1 190px;
+    min-height: 42px;
+    border: 1px solid #fed7aa;
+    background: linear-gradient(135deg, #fff7ed 0%, #ffffff 100%);
+    color: #9a3412;
+    box-shadow: 0 2px 8px rgba(234, 88, 12, 0.12);
+    font-weight: 800;
+}
+
+.external-copy-btn:hover {
+    border-color: var(--accent-orange);
+    background: #ffedd5;
+    color: #c2410c;
 }
 
 .modal-actions-bottom {
@@ -2068,6 +2140,31 @@ select.form-input {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+}
+
+.raw-word-count {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 9px 10px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+}
+
+.raw-word-count svg {
+    width: 14px;
+    height: 14px;
+    color: var(--accent-orange);
+}
+
+.raw-word-count span {
+    white-space: nowrap;
 }
 
 .sortable-image-grid {

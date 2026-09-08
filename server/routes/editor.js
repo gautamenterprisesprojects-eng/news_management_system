@@ -529,6 +529,52 @@ router.post('/news/:id/forward', async (req, res) => {
 });
 
 /**
+ * POST /api/editor/news/:id/forward-website
+ * Send processed news only to the external website API, without forwarding to operators.
+ */
+router.post('/news/:id/forward-website', async (req, res) => {
+    try {
+        const news = queryGet("SELECT * FROM news WHERE id = ? AND status IN ('processed','forwarded','published')", [req.params.id]);
+        if (!news) {
+            return res.status(400).json({ error: 'News must be processed before website forwarding.' });
+        }
+
+        const externalNews = queryGet(`
+            SELECT n.*, u.full_name AS reporter_name, u.name_hi, u.name_en
+            FROM news n JOIN users u ON u.id = n.reporter_id WHERE n.id = ?
+        `, [news.id]);
+
+        const externalDelivery = await deliverForwardedNews(externalNews);
+        if (!externalDelivery.enabled) {
+            return res.status(503).json({ error: 'Website posting API is not configured.' });
+        }
+        if (externalDelivery.postedLinks?.hindiUrl || externalDelivery.postedLinks?.englishUrl) {
+            const linkedNewsId = parseExternalNewsId(externalDelivery.responseExternalId || externalDelivery.externalId) || news.id;
+            if (linkedNewsId !== news.id) {
+                throw new Error(`External API returned mismatched externalId ${externalDelivery.responseExternalId}`);
+            }
+            queryRun(
+                `UPDATE news
+                 SET external_hindi_url = COALESCE(?, external_hindi_url),
+                     external_english_url = COALESCE(?, external_english_url),
+                     external_posted_at = datetime('now', 'localtime')
+                 WHERE id = ?`,
+                [externalDelivery.postedLinks.hindiUrl, externalDelivery.postedLinks.englishUrl, linkedNewsId]
+            );
+        }
+
+        res.json({
+            success: true,
+            message: externalDelivery?.delivered ? 'News forwarded to website.' : 'Website forwarding skipped.',
+            externalDelivery
+        });
+    } catch (err) {
+        console.error('Editor website-only forward error:', err);
+        res.status(500).json({ error: `Website forward failed: ${err.message}` });
+    }
+});
+
+/**
  * POST /api/editor/news/:id/reject
  */
 router.post('/news/:id/reject', (req, res) => {

@@ -19,6 +19,13 @@ app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+app.use('/api', (req, res, next) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    next();
+});
+
 app.get('/sw.js', (req, res) => {
     res.set('Cache-Control', 'no-cache');
     res.sendFile(path.join(__dirname, '..', 'public', 'sw.js'));
@@ -29,7 +36,16 @@ app.get('/manifest.webmanifest', (req, res) => {
 });
 
 // Serve static files (frontend)
-app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '30d' }));
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+    maxAge: '30d',
+    setHeaders: (res, filePath) => {
+        if (/\.(html|js|css|webmanifest)$/i.test(filePath)) {
+            res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.set('Pragma', 'no-cache');
+            res.set('Expires', '0');
+        }
+    }
+}));
 
 // Serve uploaded images
 if (!fs.existsSync(uploadsDir)) {
@@ -108,6 +124,9 @@ if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
 // ============================================================
 app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
+        res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
         res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
     } else {
         res.status(404).json({ error: 'Endpoint not found.' });

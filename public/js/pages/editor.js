@@ -10,6 +10,10 @@ let _hasMoreRaw = true;
 let _publishedNewsData = [];
 let _publishedPage = 1;
 let _hasMorePublished = true;
+let _editorRefreshTimer = null;
+let _lastEditorScrollRefresh = 0;
+let _rawNewsLoadSeq = 0;
+let _processedNewsLoadSeq = 0;
 
 function onRawReporterFilterChange(val) {
     _rawNewsReporterFilter = val;
@@ -21,6 +25,12 @@ function renderEditor() {
     app.innerHTML = `
         ${renderTopBar('editor.title', null, 'pen')}
         <main class="page-content">
+            <div class="editor-refresh-toolbar">
+                <button class="btn btn-secondary btn-sm" onclick="refreshEditorNews(true)">
+                    ${icon('refresh', 14)} ताज़ा करें
+                </button>
+                <span id="editorRefreshStatus">नई खबरों के लिए सूची ताज़ा रखें</span>
+            </div>
             <div class="split-tabs">
                 <div class="split-tab active" data-tab="raw" onclick="switchEditorPane('raw')">
                     <span data-i18n="editor.raw_tab">${t('editor.raw_tab')}</span>
@@ -62,6 +72,7 @@ function renderEditor() {
 
     applyLanguage();
     ensureEditorAlertsDefaultOn();
+    initEditorFreshness();
     loadRawNews();
     loadProcessedNews();
 }
@@ -155,8 +166,10 @@ function renderEditorPublishedScreen() {
 async function loadRawNews(append = false) {
     if (!append) _rawPage = 1;
     const container = document.getElementById('rawNewsList');
+    const loadSeq = ++_rawNewsLoadSeq;
     try {
         const data = await api(`/editor/news/raw?page=${_rawPage}`);
+        if (loadSeq !== _rawNewsLoadSeq) return;
         const news = data.news || [];
         
         // The raw endpoint returns the complete short-retention history. This
@@ -201,6 +214,63 @@ async function loadRawNews(append = false) {
         renderRawNewsCards();
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
+    }
+}
+
+async function refreshEditorNews(showToastMessage = false) {
+    const statusEl = document.getElementById('editorRefreshStatus');
+    if (statusEl) statusEl.textContent = 'ताज़ा हो रहा है...';
+
+    await Promise.all([
+        loadRawNews(),
+        loadProcessedNews()
+    ]);
+
+    const time = new Date().toLocaleTimeString('hi-IN', { hour: '2-digit', minute: '2-digit' });
+    if (statusEl) statusEl.textContent = `आखिरी अपडेट: ${time}`;
+    if (showToastMessage) showToast('कच्ची खबर और प्रोसेस्ड खबर ताज़ा हो गई', 'success');
+}
+
+function initEditorFreshness() {
+    clearInterval(_editorRefreshTimer);
+    _editorRefreshTimer = setInterval(() => {
+        if (window.location.hash === '#/editor' && !document.hidden && !document.getElementById('articleModal')) {
+            refreshEditorNews(false);
+        }
+    }, 20000);
+
+    document.removeEventListener('visibilitychange', refreshEditorNewsOnVisible);
+    document.addEventListener('visibilitychange', refreshEditorNewsOnVisible);
+    window.removeEventListener('focus', refreshEditorNewsOnFocus);
+    window.addEventListener('focus', refreshEditorNewsOnFocus);
+    window.removeEventListener('scroll', refreshEditorNewsOnScroll);
+    window.addEventListener('scroll', refreshEditorNewsOnScroll, { passive: true });
+
+    const rawPane = document.getElementById('rawPane');
+    if (rawPane && !rawPane.dataset.freshnessReady) {
+        rawPane.dataset.freshnessReady = 'true';
+        rawPane.addEventListener('scroll', refreshEditorNewsOnScroll, { passive: true });
+    }
+}
+
+function refreshEditorNewsOnVisible() {
+    if (!document.hidden && window.location.hash === '#/editor' && !document.getElementById('articleModal')) refreshEditorNews(false);
+}
+
+function refreshEditorNewsOnFocus() {
+    if (window.location.hash === '#/editor' && !document.getElementById('articleModal')) refreshEditorNews(false);
+}
+
+function refreshEditorNewsOnScroll() {
+    if (window.location.hash !== '#/editor' || editorTab !== 'raw') return;
+    if (document.getElementById('articleModal')) return;
+    const now = Date.now();
+    if (now - _lastEditorScrollRefresh < 15000) return;
+    const rawPane = document.getElementById('rawPane');
+    const paneScroll = rawPane ? rawPane.scrollTop : 0;
+    if (window.scrollY > 180 || paneScroll > 180) {
+        _lastEditorScrollRefresh = now;
+        refreshEditorNews(false);
     }
 }
 
@@ -289,8 +359,10 @@ function renderRawNewsCards() {
 
 async function loadProcessedNews() {
     const container = document.getElementById('processedNewsList');
+    const loadSeq = ++_processedNewsLoadSeq;
     try {
         const data = await api('/editor/news/processed');
+        if (loadSeq !== _processedNewsLoadSeq) return;
         const news = data.news || [];
 
         const countEls = ['processedCount', 'processedPaneCount'];
@@ -332,8 +404,11 @@ async function loadProcessedNews() {
                     <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); openProcessedNewsDetail(${n.id})">
                         ${icon('eye',12)} पूरी खबर पढ़ें
                     </button>
-                    <button class="btn btn-primary btn-xs" onclick="event.stopPropagation(); quickForwardNews(${n.id})">
+                    <button class="btn btn-primary btn-xs" onclick="event.stopPropagation(); quickForwardNews(${n.id}, this)">
                         ${icon('send',12)} ${t('editor.forward_card_btn')}
+                    </button>
+                    <button class="btn btn-secondary btn-xs btn-website-forward" onclick="event.stopPropagation(); quickWebsiteForwardNews(${n.id}, this)">
+                        ${icon('globe',12)} सिर्फ वेबसाइट पर
                     </button>
                 </div>
             </div>
@@ -375,6 +450,7 @@ async function openRawNewsDetail(id) {
 
         let extraHtml = '';
         if (news.images && news.images.length > 0) extraHtml += renderEditorImagePicker(news, id);
+        extraHtml += renderRawNewsWordCount(news);
         if (hasRewrite) {
             extraHtml += `
                 <div class="processed-review-block">
@@ -434,8 +510,11 @@ async function openProcessedNewsDetail(id) {
             <button class="btn btn-secondary" style="flex:1;" onclick="saveProcessedNewsEdits(${id})">
                 ${icon('check', 14)} Save Edit
             </button>
-            <button class="btn btn-primary" style="flex:1;" onclick="forwardEditedNews(${id})">
+            <button class="btn btn-primary" style="flex:1;" onclick="forwardEditedNews(${id}, this)">
                 ${icon('send', 14)} ${t('editor.forward_card_btn')}
+            </button>
+            <button class="btn btn-secondary btn-website-forward" style="flex:1;" onclick="websiteForwardEditedNews(${id}, this)">
+                ${icon('globe', 14)} सिर्फ वेबसाइट पर फॉरवर्ड करें
             </button>
         `;
 
@@ -476,6 +555,28 @@ function renderEditorImagePicker(news, id) {
                     </div>
                 `).join('')}
             </div>
+        </div>
+    `;
+}
+
+function countNewsWords(text) {
+    return String(text || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean).length;
+}
+
+function renderRawNewsWordCount(news) {
+    const headlineWords = countNewsWords(news.headline);
+    const bodyWords = countNewsWords(news.body);
+    const totalWords = headlineWords + bodyWords;
+
+    return `
+        <div class="raw-word-count">
+            ${icon('file-text', 14)}
+            <span>कच्ची खबर शब्द: ${totalWords}</span>
+            <span>शीर्षक: ${headlineWords}</span>
+            <span>खबर: ${bodyWords}</span>
         </div>
     `;
 }
@@ -734,7 +835,7 @@ async function triggerRewrite(id, options = {}, btn = null) {
 
 /**
  * Show Custom AI Rewrite Settings Modal
- * Allows selection of Subheadings (1, 3, 4, 6), Image Caption (20, 30, 40), Language (Hindi, English), Word Limit
+ * Allows selection of Subheadings (1, 2, 3, 4, 6), Image Caption (20, 30, 40), Language (Hindi, English), Word Limit
  */
 function showCustomRewriteModal(newsId) {
     closeCustomRewriteModal();
@@ -747,7 +848,7 @@ function showCustomRewriteModal(newsId) {
     };
 
     const wordOptions = [100, 150, 200, 250, 300, 400, 500, 600, 700, 800, 1000];
-    const subheadingOptions = [1, 3, 4, 6];
+    const subheadingOptions = [1, 2, 3, 4, 6];
     const captionOptions = [20, 30, 40];
     const languageOptions = [
         { code: 'hi', label: 'हिंदी (Hindi)' },
@@ -936,23 +1037,77 @@ async function approveNews(id) {
 }
 
 async function forwardNews(id) {
+    return forwardNewsWithProgress(id, null, '/forward', t('editor.forward_success'), true);
+}
+
+function startForwardProgress(buttonEl, label) {
+    if (!buttonEl) return () => {};
+
+    let progress = 0;
+    const originalHtml = buttonEl.innerHTML;
+    buttonEl.disabled = true;
+    buttonEl.classList.add('btn-loading-progress');
+
+    const render = () => {
+        buttonEl.style.setProperty('--progress', `${progress}%`);
+        buttonEl.innerHTML = `
+            <span class="btn-progress-fill"></span>
+            <span class="btn-progress-label">${icon('loader-2', 14)} ${label} ${progress}%</span>
+        `;
+        refreshIcons();
+    };
+
+    render();
+    const timer = setInterval(() => {
+        progress = Math.min(90, progress + 5);
+        render();
+    }, 180);
+
+    return (done = false) => {
+        clearInterval(timer);
+        if (done) {
+            progress = 100;
+            render();
+            setTimeout(() => {
+                buttonEl.disabled = false;
+                buttonEl.classList.remove('btn-loading-progress');
+                buttonEl.style.removeProperty('--progress');
+                buttonEl.innerHTML = originalHtml;
+                refreshIcons();
+            }, 350);
+            return;
+        }
+
+        buttonEl.disabled = false;
+        buttonEl.classList.remove('btn-loading-progress');
+        buttonEl.style.removeProperty('--progress');
+        buttonEl.innerHTML = originalHtml;
+        refreshIcons();
+    };
+}
+
+async function forwardNewsWithProgress(id, buttonEl, endpoint, successMessage, closeAfterSuccess) {
+    const finishProgress = startForwardProgress(buttonEl, 'फॉरवर्ड');
     try {
-        const result = await api(`/editor/news/${id}/forward`, {
+        const result = await api(`/editor/news/${id}${endpoint}`, {
             method: 'POST',
             body: JSON.stringify({})
         });
 
         if (result.error) {
+            finishProgress(false);
             showToast(result.error, 'error');
             return;
         }
 
-        closeArticleModal();
-        showToast(t('editor.forward_success'), 'success');
-        loadProcessedNews();
-        editorTab = 'forwarded';
-        renderEditorForwardedScreen();
+        finishProgress(true);
+        if (closeAfterSuccess) closeArticleModal();
+        showToast(successMessage, 'success');
+        await loadProcessedNews();
+        await loadRawNews();
+        return result;
     } catch (err) {
+        finishProgress(false);
         showToast(t('common.error'), 'error');
     }
 }
@@ -984,10 +1139,16 @@ async function saveProcessedNewsEdits(id, options = {}) {
     }
 }
 
-async function forwardEditedNews(id) {
+async function forwardEditedNews(id, buttonEl = null) {
     const saved = await saveProcessedNewsEdits(id, { silent: true });
     if (!saved) return;
-    await forwardNews(id);
+    await forwardNewsWithProgress(id, buttonEl, '/forward', t('editor.forward_success'), true);
+}
+
+async function websiteForwardEditedNews(id, buttonEl = null) {
+    const saved = await saveProcessedNewsEdits(id, { silent: true });
+    if (!saved) return;
+    await forwardNewsWithProgress(id, buttonEl, '/forward-website', 'खबर सिर्फ वेबसाइट पर भेज दी गई', false);
 }
 
 
@@ -1011,35 +1172,22 @@ async function quickApproveNews(id) {
     }
 }
 
-async function quickForwardNews(id) {
-    try {
-        const result = await api(`/editor/news/${id}/forward`, {
-            method: 'POST',
-            body: JSON.stringify({})
-        });
+async function quickForwardNews(id, buttonEl = null) {
+    await forwardNewsWithProgress(id, buttonEl, '/forward', t('editor.forward_success'), false);
+}
 
-        if (result.error) {
-            showToast(result.error, 'error');
-            return;
-        }
-
-        showToast(t('editor.forward_success'), 'success');
-        loadProcessedNews();
-        editorTab = 'forwarded';
-        renderEditorForwardedScreen();
-    } catch (err) {
-        showToast(t('common.error'), 'error');
-    }
+async function quickWebsiteForwardNews(id, buttonEl = null) {
+    await forwardNewsWithProgress(id, buttonEl, '/forward-website', 'खबर सिर्फ वेबसाइट पर भेज दी गई', false);
 }
 
 function renderEditorExternalLinks(news) {
     const links = [
-        news.external_hindi_url ? `<button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); copyExternalArticleLink('${encodeURIComponent(news.external_hindi_url)}', 'Hindi')">${icon('copy',12)} Copy Hindi link</button>` : '',
-        news.external_english_url ? `<button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); copyExternalArticleLink('${encodeURIComponent(news.external_english_url)}', 'English')">${icon('copy',12)} Copy English link</button>` : ''
+        news.external_hindi_url ? `<button class="btn external-copy-btn" onclick="event.stopPropagation(); copyExternalArticleLink('${encodeURIComponent(news.external_hindi_url)}', 'Hindi')">${icon('copy',14)} हिंदी लिंक कॉपी करें</button>` : '',
+        news.external_english_url ? `<button class="btn external-copy-btn" onclick="event.stopPropagation(); copyExternalArticleLink('${encodeURIComponent(news.external_english_url)}', 'English')">${icon('copy',14)} English link copy</button>` : ''
     ].filter(Boolean);
 
     if (!links.length) return '';
-    return `<div class="news-card-actions-row">${links.join('')}</div>`;
+    return `<div class="external-links-panel">${links.join('')}</div>`;
 }
 
 async function copyExternalArticleLink(url, language) {
