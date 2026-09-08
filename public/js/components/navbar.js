@@ -111,6 +111,7 @@ function renderBottomNav(role, activeTab) {
             break;
         case 'sub_editor':
             items = [
+                { id: 'submit', icon: 'square-pen', label: 'reporter.nav_submit' },
                 { id: 'pending', icon: 'inbox', label: 'लंबित' },
                 { id: 'forwarded', icon: 'send', label: 'भेजी' },
                 { id: 'rejected', icon: 'x-circle', label: 'रिजेक्ट' },
