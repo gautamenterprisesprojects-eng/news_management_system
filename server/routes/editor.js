@@ -265,6 +265,76 @@ router.post('/news/:id/images/select', (req, res) => {
 });
 
 /**
+ * POST /api/editor/news/:id/images/:imageId/delete
+ * Delete one uploaded image from an article and repair cover/order metadata.
+ */
+router.post('/news/:id/images/:imageId/delete', (req, res) => {
+    try {
+        const newsId = req.params.id;
+        const imageId = Number(req.params.imageId);
+        if (!Number.isInteger(imageId)) {
+            return res.status(400).json({ error: 'Invalid image id.' });
+        }
+
+        const news = queryGet('SELECT id, image_path, selected_image_path FROM news WHERE id = ?', [newsId]);
+        if (!news) return res.status(404).json({ error: 'News not found.' });
+
+        const image = queryGet('SELECT id, image_path, is_selected FROM news_images WHERE id = ? AND news_id = ?', [imageId, newsId]);
+        if (!image) return res.status(404).json({ error: 'Image not found for this article.' });
+
+        queryRun('DELETE FROM news_images WHERE id = ? AND news_id = ?', [imageId, newsId]);
+
+        const remainingImages = queryAll(
+            'SELECT id, image_path, is_selected FROM news_images WHERE news_id = ? ORDER BY sort_order ASC, id ASC',
+            [newsId]
+        );
+
+        remainingImages.forEach((img, idx) => {
+            queryRun('UPDATE news_images SET sort_order = ? WHERE id = ?', [idx, img.id]);
+        });
+
+        let selectedImagePath = null;
+        if (remainingImages.length > 0) {
+            let selected = remainingImages.find(img => img.is_selected);
+            if (!selected || image.is_selected || news.selected_image_path === image.image_path) {
+                selected = remainingImages[0];
+                queryRun('UPDATE news_images SET is_selected = 0 WHERE news_id = ?', [newsId]);
+                queryRun('UPDATE news_images SET is_selected = 1 WHERE id = ?', [selected.id]);
+            }
+            selectedImagePath = selected.image_path;
+        }
+
+        const primaryImagePath = remainingImages[0]?.image_path || null;
+        queryRun(
+            'UPDATE news SET image_path = ?, selected_image_path = ? WHERE id = ?',
+            [primaryImagePath, selectedImagePath, newsId]
+        );
+
+        try {
+            const fullPath = resolveUpload(image.image_path);
+            if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+        } catch (fileError) {
+            console.error('Editor delete single image cleanup error:', fileError);
+        }
+
+        res.json({
+            success: true,
+            deleted_image_id: imageId,
+            image_path: primaryImagePath,
+            selected_image_path: selectedImagePath,
+            images: remainingImages.map((img, idx) => ({
+                ...img,
+                sort_order: idx,
+                is_selected: img.image_path === selectedImagePath ? 1 : 0
+            }))
+        });
+    } catch (err) {
+        console.error('Editor delete single image error:', err);
+        res.status(500).json({ error: 'Failed to delete image.' });
+    }
+});
+
+/**
  * POST /api/editor/news/:id/rewrite
  * Fetches reporter's name_hi/name_en/post and city, passes them to AI rewriter
  */

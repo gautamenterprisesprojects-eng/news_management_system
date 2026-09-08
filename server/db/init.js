@@ -134,6 +134,20 @@ async function initDatabase() {
     `);
 
     // ============================================================
+    // TABLE: push_subscriptions
+    // ============================================================
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            endpoint TEXT UNIQUE NOT NULL,
+            subscription_json TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    `);
+
+    // ============================================================
     // INDEXES
     // ============================================================
     db.exec(`CREATE INDEX IF NOT EXISTS idx_news_status ON news(status)`);
@@ -141,6 +155,7 @@ async function initDatabase() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_news_copies_news ON news_copies(news_id)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_news_images_order ON news_images(news_id, sort_order, id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id)`);
 
     // ============================================================
     // SEED: Default admin account (admin / admin123)

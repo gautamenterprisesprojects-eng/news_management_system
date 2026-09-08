@@ -61,6 +61,7 @@ function renderEditor() {
     `;
 
     applyLanguage();
+    ensureEditorAlertsDefaultOn();
     loadRawNews();
     loadProcessedNews();
 }
@@ -121,6 +122,7 @@ function renderEditorForwardedScreen() {
         forwardedHeading.textContent = t('editor.forwarded_tab');
     }
     applyLanguage();
+    ensureEditorAlertsDefaultOn();
     loadForwardedNews();
 }
 
@@ -146,6 +148,7 @@ function renderEditorPublishedScreen() {
         ${renderBottomNav('editor', 'published')}
     `;
     applyLanguage();
+    ensureEditorAlertsDefaultOn();
     loadPublishedNews();
 }
 
@@ -371,7 +374,7 @@ async function openRawNewsDetail(id) {
         `;
 
         let extraHtml = '';
-        if (news.images && news.images.length > 1) extraHtml += renderEditorImagePicker(news, id);
+        if (news.images && news.images.length > 0) extraHtml += renderEditorImagePicker(news, id);
         if (hasRewrite) {
             extraHtml += `
                 <div class="processed-review-block">
@@ -465,6 +468,9 @@ function renderEditorImagePicker(news, id) {
                 ${images.map((img, idx) => `
                     <div class="editor-img-tile ${img.is_selected ? 'selected' : ''}" data-image-id="${img.id}" tabindex="0" role="button" aria-label="Image ${idx + 1}">
                         <img src="${img.image_path}" alt="">
+                        <button class="editor-img-delete-btn" type="button" onclick="deleteEditorImage(${id}, ${img.id}, this, event)" aria-label="Delete image">
+                            ${icon('trash', 12)}
+                        </button>
                         <div class="editor-img-order-badge">${idx + 1}</div>
                         ${img.is_selected ? `<div class="editor-img-selected-badge">${icon('check', 10)} Cover</div>` : ''}
                     </div>
@@ -526,6 +532,7 @@ function initEditorImageSorter(newsId) {
     let hasMoved = false;
 
     grid.addEventListener('pointerdown', (event) => {
+        if (event.target.closest('.editor-img-delete-btn')) return;
         const tile = event.target.closest('.editor-img-tile');
         if (!tile || !grid.contains(tile)) return;
         draggedTile = tile;
@@ -604,6 +611,72 @@ async function saveEditorImageOrder(newsId, grid) {
         showToast('Image sequence saved', 'success');
     } catch (err) {
         showToast(t('common.error'), 'error');
+    }
+}
+
+async function deleteEditorImage(newsId, imageId, buttonEl, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    if (!confirm('क्या आप इस फोटो को हटाना चाहते हैं?')) return;
+
+    const tile = buttonEl.closest('.editor-img-tile');
+    const grid = tile?.closest('.editor-image-grid');
+    if (buttonEl) buttonEl.disabled = true;
+
+    try {
+        const result = await api(`/editor/news/${newsId}/images/${imageId}/delete`, {
+            method: 'POST',
+            body: JSON.stringify({})
+        });
+
+        if (result.error) {
+            showToast(result.error, 'error');
+            if (buttonEl) buttonEl.disabled = false;
+            return;
+        }
+
+        if (tile) tile.remove();
+        if (grid) {
+            const selectedId = result.images?.find(img => img.is_selected)?.id;
+            grid.querySelectorAll('.editor-img-tile').forEach(t => {
+                t.classList.remove('selected');
+                const badge = t.querySelector('.editor-img-selected-badge');
+                if (badge) badge.remove();
+            });
+
+            updateEditorImageOrderBadges(grid);
+            const selectedTile = selectedId ? grid.querySelector(`[data-image-id="${selectedId}"]`) : null;
+            if (selectedTile) {
+                selectedTile.classList.add('selected');
+                selectedTile.insertAdjacentHTML('beforeend', `<div class="editor-img-selected-badge">${icon('check', 10)} Cover</div>`);
+            }
+
+            if (!grid.querySelector('.editor-img-tile')) {
+                const picker = grid.closest('.editor-image-picker');
+                if (picker) picker.remove();
+            }
+        }
+
+        const modalImg = document.querySelector('.modal-image');
+        if (modalImg) {
+            if (result.selected_image_path) {
+                modalImg.src = result.selected_image_path;
+                modalImg.style.display = '';
+            } else {
+                modalImg.remove();
+            }
+        }
+
+        if (document.getElementById('rawNewsList')) loadRawNews();
+        if (document.getElementById('processedNewsList')) loadProcessedNews();
+        if (document.getElementById('publishedNewsList')) loadPublishedNews();
+        showToast('फोटो हटा दी गई', 'success');
+        refreshIcons();
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+        if (buttonEl) buttonEl.disabled = false;
     }
 }
 
@@ -1214,22 +1287,7 @@ async function openPublishedNewsDetail(id) {
 
         const hasImages = news.images && news.images.length > 0;
         let extraHtml = renderEditorExternalLinks(news);
-        if (hasImages) {
-            extraHtml = `
-                ${extraHtml}
-                <div class="editor-image-picker" style="margin-top:24px; padding-top:16px; border-top:1px solid var(--border-color);">
-                    <div class="editor-image-picker-label">${icon('photos', 14)} Cover Image Selection (${news.images.length})</div>
-                    <div class="editor-image-grid" id="editorImageGrid-${id}">
-                        ${news.images.map(img => `
-                            <div class="editor-img-tile ${img.is_selected ? 'selected' : ''}" onclick="selectEditorImage(${id}, ${img.id}, this)">
-                                <img src="${img.image_path}" alt="">
-                                ${img.is_selected ? `<div class="editor-img-selected-badge">${icon('check', 10)} Cover</div>` : ''}
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        }
+        if (hasImages) extraHtml = `${extraHtml}${renderEditorImagePicker(news, id)}`;
 
         const actionsHtml = `
             <button class="btn btn-danger" onclick="deleteNews(${id})">
@@ -1248,6 +1306,7 @@ async function openPublishedNewsDetail(id) {
             created_at: news.published_at || news.forwarded_at || news.processed_at || news.created_at,
             actionsHtml
         });
+        initEditorImageSorter(id);
     } catch (err) {
         showToast(t('common.error'), 'error');
     }

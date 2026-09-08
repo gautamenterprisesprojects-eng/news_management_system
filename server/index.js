@@ -19,6 +19,15 @@ app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+app.get('/sw.js', (req, res) => {
+    res.set('Cache-Control', 'no-cache');
+    res.sendFile(path.join(__dirname, '..', 'public', 'sw.js'));
+});
+app.get('/manifest.webmanifest', (req, res) => {
+    res.set('Cache-Control', 'no-cache');
+    res.sendFile(path.join(__dirname, '..', 'public', 'manifest.webmanifest'));
+});
+
 // Serve static files (frontend)
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '30d' }));
 
@@ -49,6 +58,7 @@ const reporterRoutes = require('./routes/reporter');
 const profileRoutes = require('./routes/profile');
 const publicRoutes = require('./routes/public');
 const externalNewsRoutes = require('./routes/externalNews');
+const pushRoutes = require('./routes/push');
 
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
@@ -59,6 +69,7 @@ app.use('/api/transliterate', require('./routes/transliterate'));
 app.use('/api/profile', profileRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/external-news', externalNewsRoutes);
+app.use('/api/push', pushRoutes);
 
 // Background cron job: every hour, delete news older than 48 hours
 if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {

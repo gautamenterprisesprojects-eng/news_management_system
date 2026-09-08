@@ -57,6 +57,11 @@ function renderTopBar(titleKey, icon) {
                 <div class="user-dropdown-item" onclick="window.location.hash='#/profile'; toggleUserDropdown();">
                     <i data-lucide="user"></i> <span data-i18n="profile.settings">${t('profile.settings')}</span>
                 </div>
+                ${user.role === 'editor' ? `
+                    <div class="user-dropdown-item" id="editorAlertBtn" onclick="enableEditorAlerts(this); event.stopPropagation();">
+                        <i data-lucide="bell"></i> Enable alerts
+                    </div>
+                ` : ''}
                 <div class="user-dropdown-item danger" onclick="logout()">
                     <i data-lucide="log-out"></i>
                     <span data-i18n="common.logout">${t('common.logout')}</span>
@@ -124,6 +129,7 @@ function toggleUserDropdown() {
     const dropdown = document.getElementById('userDropdown');
     if (dropdown) {
         dropdown.classList.toggle('show');
+        updateEditorAlertButton();
     }
 }
 

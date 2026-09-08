@@ -6,6 +6,32 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { queryAll, queryRun, queryGet } = require('../db/init');
 const { verifyToken, requireRole } = require('../middleware/auth');
+const { sendPushToEditors } = require('../services/pushNotifications');
+
+function toHindiDigits(value) {
+    const digits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
+    return String(value).replace(/\d/g, digit => digits[Number(digit)]);
+}
+
+function formatHindiNotificationTime(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('hi-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+    }).format(date);
+
+    return toHindiDigits(parts.replace('am', 'पूर्वाह्न').replace('pm', 'अपराह्न'));
+}
+
+function absoluteUrl(req, assetPath) {
+    if (!assetPath) return null;
+    const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    return new URL(assetPath, baseUrl).href;
+}
 
 // Multer config for image uploads
 const storage = multer.diskStorage({
@@ -50,7 +76,7 @@ router.use(verifyToken, requireRole('reporter'));
  * POST /api/reporter/news
  * Accepts up to 10 images via 'images' field
  */
-router.post('/news', upload.array('images', 10), (req, res) => {
+router.post('/news', upload.array('images', 10), async (req, res) => {
     try {
         const { headline, body, category, tags, city } = req.body;
 
@@ -79,6 +105,20 @@ router.post('/news', upload.array('images', 10), (req, res) => {
                 );
             });
         }
+
+        const reporter = queryGet('SELECT full_name, name_hi FROM users WHERE id = ?', [req.user.id]);
+        const reporterName = reporter?.name_hi || reporter?.full_name || req.user.full_name || 'रिपोर्टर';
+        const submittedAt = formatHindiNotificationTime();
+        const preview = body.length > 90 ? `${body.slice(0, 90)}...` : body;
+
+        sendPushToEditors({
+            title: 'नई खबर आई',
+            body: `शीर्षक: ${headline}\nरिपोर्टर: ${reporterName}\nसमय: ${submittedAt}\nझलक: ${preview}`,
+            url: '/#/editor',
+            image: absoluteUrl(req, imagePath),
+            newsId,
+            tag: `news-${newsId}`
+        }).catch(err => console.error('Editor push notification error:', err));
 
         res.json({ id: newsId, message: 'News submitted successfully.' });
     } catch (err) {

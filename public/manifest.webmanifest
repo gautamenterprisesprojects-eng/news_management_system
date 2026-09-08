@@ -1,0 +1,27 @@
+{
+  "name": "NMS THE CLIFF NEWS",
+  "short_name": "NMS THE CLIFF NEWS",
+  "description": "NMS THE CLIFF NEWS - News Management System",
+  "id": "/",
+  "lang": "hi-IN",
+  "start_url": "/#/login",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f0f1a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/images/pwa-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/pwa-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
