@@ -14,7 +14,7 @@ services:
       PORT: "3000"
       HOST: 0.0.0.0
       ENABLE_NEWS_CLEANUP: "true"
-      NODE_OPTIONS: --max-old-space-size=320
+      NODE_OPTIONS: --max-old-space-size=640
       TZ: Asia/Kolkata
     ports:
       - "127.0.0.1:3010:3000"
@@ -26,8 +26,8 @@ services:
       - /tmp:size=64m,mode=1777
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    mem_limit: 512m
-    memswap_limit: 512m
+    mem_limit: 800m
+    memswap_limit: 800m
     cpus: 0.5
     pids_limit: 100
     stop_grace_period: 15s

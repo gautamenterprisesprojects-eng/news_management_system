@@ -44,9 +44,9 @@ function renderEditor() {
 
             <div class="split-screen">
                 <div class="split-pane active" id="rawPane">
-                    <div class="split-pane-header">
-                        <h3 data-i18n="editor.raw_title">${t('editor.raw_title')}</h3>
-                        <div style="display:flex; align-items:center; gap:12px;">
+                    <div class="split-pane-header" style="flex-wrap: wrap; justify-content: space-between; align-items: center;">
+                        <h3 data-i18n="editor.raw_title" style="margin:0;">${t('editor.raw_title')}</h3>
+                        <div style="display:flex; align-items:center; gap:8px;">
                             <div id="rawNewsFilterContainer"></div>
                             <span class="pane-count" id="rawPaneCount">0</span>
                         </div>
@@ -87,6 +87,23 @@ function switchEditorPane(pane) {
     }
     if (pane === 'published') {
         renderEditorPublishedScreen();
+        return;
+    }
+
+    if (pane === 'more') {
+        renderEditorMoreScreen();
+        return;
+    }
+    if (pane === 'pdfs') {
+        renderEditorPdfsScreen();
+        return;
+    }
+    if (pane === 'ads') {
+        renderEditorAdsScreen();
+        return;
+    }
+    if (pane === 'api') {
+        renderEditorApiScreen();
         return;
     }
 
@@ -1502,5 +1519,448 @@ async function selectEditorImage(newsId, imageId, tileEl) {
         showToast('Cover image selected', 'success');
     } catch (err) {
         showToast(t('common.error'), 'error');
+    }
+}
+
+
+// ==========================================
+// EDITOR API NEWSPAPER GENERATOR HUB
+// ==========================================
+
+let _apiTargets = [];
+let _selectedApiTargetId = null;
+let _selectedApiTargetName = '';
+let _selectedApiNews = new Set();
+let _apiNewsCache = [];
+
+function renderEditorApiScreen() {
+    const app = document.getElementById('app');
+    app.innerHTML = `
+        ${renderTopBar('editor.title', 'server')}
+        <main class="page-content" style="padding-bottom: 70px;">
+            <div class="split-pane-header" style="padding: 12px 16px; border-bottom: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button class="btn btn-secondary btn-sm" onclick="switchEditorPane('more')">← वापस</button>
+                    <h3 style="margin: 0;">न्यूज़पेपर API</h3>
+                </div>
+            </div>
+            
+            <div id="apiTargetsSelection" style="padding: 16px;">
+                <h4 style="margin-bottom:12px; color:var(--text-secondary);">सब-एडिटर / API रिपोर्टर चुनें</h4>
+                <div id="apiTargetsList" class="user-list" style="display: flex; flex-direction: column; gap: 10px;">
+                    <div class="loading-spinner"></div>
+                </div>
+            </div>
+
+            <div id="apiNewsSelection" class="hidden" style="padding: 0 8px;">
+                <div class="bundle-toolbar" style="padding: 10px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10;">
+                    <div style="display:flex; align-items:center; gap: 12px; flex-wrap:wrap;">
+                        <button class="btn btn-secondary btn-sm" onclick="backToApiTargets()">← वापस</button>
+                        <strong id="apiSelectedTargetTitle" style="font-size:14px;"></strong>
+                        <div>
+                            <input type="checkbox" id="selectAllApiNews" onchange="toggleSelectAllApiNews(this.checked)">
+                            <label for="selectAllApiNews" style="margin-left:8px; font-size:14px;">सभी चुनें</label>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" id="apiBundleSendBtn" onclick="sendApiNewspaperBundle()" disabled>
+                        📰 API बंडल भेजें (0)
+                    </button>
+                </div>
+                <div id="apiNewsList" style="margin-top: 12px; padding: 0 8px; display: flex; flex-direction: column; gap: 10px;"></div>
+            </div>
+        </main>
+        ${renderBottomNav('editor', 'more')}
+    `;
+    applyLanguage();
+    loadApiTargets();
+}
+
+async function loadApiTargets() {
+    const container = document.getElementById('apiTargetsList');
+    if (!container) return;
+    try {
+        const data = await api('/editor/api-targets');
+        _apiTargets = data.targets || [];
+        
+        if (_apiTargets.length === 0) {
+            container.innerHTML = `<div class="empty-state"><div class="empty-text">कोई API इनेबल्ड व्यक्ति नहीं मिला</div></div>`;
+            return;
+        }
+
+        container.innerHTML = _apiTargets.map(t => {
+            const avatarHtml = t.avatar_path 
+                ? `<img src="${t.avatar_path}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">`
+                : `<div class="user-avatar ${t.role}" style="width:40px; height:40px; font-size:18px;">${t.full_name.charAt(0).toUpperCase()}</div>`;
+            
+            const count = Number(t.processed_rewritten_count || 0);
+            return `
+            <div class="card" style="display:flex; align-items:center; gap:16px; cursor:pointer; padding: 12px 16px; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='var(--card-bg)'" onclick="selectApiTarget(${t.id}, '${escapeHtml(t.full_name)}')">
+                ${avatarHtml}
+                <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+                    <div style="font-weight:600; font-size:1.1rem; color:var(--text-primary);">${escapeHtml(t.full_name)}</div>
+                    <div style="font-size:0.9rem; color:var(--text-secondary); margin-top:4px;">
+                        <strong>${t.role === 'sub_editor' ? 'Sub-Editor' : 'API Reporter'}</strong> <span style="margin: 0 6px;">•</span> ${escapeHtml(t.district || t.city || 'No City')}
+                    </div>
+                    <div style="font-size:0.85rem; color:${count >= 7 ? 'var(--accent-green)' : 'var(--accent-orange)'}; margin-top:4px;">
+                        AI rewritten processed news: ${count}
+                    </div>
+                </div>
+                ${icon('chevron-right', 20)}
+            </div>
+        `}).join('');
+    } catch (err) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
+    }
+}
+
+function backToApiTargets() {
+    document.getElementById('apiTargetsSelection').classList.remove('hidden');
+    document.getElementById('apiNewsSelection').classList.add('hidden');
+    _selectedApiTargetId = null;
+    _selectedApiTargetName = '';
+    _selectedApiNews.clear();
+    _apiNewsCache = [];
+}
+
+async function selectApiTarget(id, name) {
+    _selectedApiTargetId = id;
+    _selectedApiTargetName = name;
+    document.getElementById('apiTargetsSelection').classList.add('hidden');
+    document.getElementById('apiNewsSelection').classList.remove('hidden');
+    _selectedApiNews.clear();
+    updateApiBundleToolbar();
+    const title = document.getElementById('apiSelectedTargetTitle');
+    if (title) title.textContent = `${name} की AI rewritten processed खबरें`;
+    
+    await loadNewsForApiTarget();
+}
+
+async function loadNewsForApiTarget() {
+    const container = document.getElementById('apiNewsList');
+    container.innerHTML = '<div class="loading-spinner" style="margin:40px auto;"></div>';
+
+    try {
+        const data = await api(`/editor/api-targets/${_selectedApiTargetId}/news`);
+        _apiNewsCache = data.news || [];
+        
+        if (_apiNewsCache.length === 0) {
+            container.innerHTML = `<div class="empty-state"><div class="empty-text">${escapeHtml(_selectedApiTargetName || 'इस यूज़र')} की कोई AI rewritten processed खबर उपलब्ध नहीं है</div></div>`;
+            return;
+        }
+
+        container.innerHTML = _apiNewsCache.map(news => `
+            <div class="card api-news-card" onclick="toggleApiNewsSelection(${news.id})" id="api-news-card-${news.id}" style="padding:12px; display:flex; gap:12px; cursor:pointer;">
+                <input type="checkbox" id="api-chk-${news.id}" style="margin-top:4px;" onclick="event.stopPropagation(); toggleApiNewsSelection(${news.id})" ${_selectedApiNews.has(news.id) ? 'checked' : ''}>
+                <div style="flex:1;">
+                    <div style="font-weight:bold; font-size:0.95rem; line-height:1.4;">${escapeHtml(news.headline_rewritten || news.headline)}</div>
+                    <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:6px;">
+                        ${escapeHtml(news.reporter_name || '')} • ${escapeHtml(news.city || '')} • ${formatDate(news.processed_at)}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    } catch (err) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
+    }
+}
+
+function toggleApiNewsSelection(id) {
+    const chk = document.getElementById(`api-chk-${id}`);
+    if (_selectedApiNews.has(id)) {
+        _selectedApiNews.delete(id);
+        if (chk) chk.checked = false;
+    } else {
+        _selectedApiNews.add(id);
+        if (chk) chk.checked = true;
+    }
+    updateApiBundleToolbar();
+}
+
+function toggleSelectAllApiNews(checked) {
+    _apiNewsCache.forEach(n => {
+        if (checked) _selectedApiNews.add(n.id);
+        else _selectedApiNews.delete(n.id);
+        const chk = document.getElementById(`api-chk-${n.id}`);
+        if (chk) chk.checked = checked;
+    });
+    updateApiBundleToolbar();
+}
+
+function updateApiBundleToolbar() {
+    const btn = document.getElementById('apiBundleSendBtn');
+    if (!btn) return;
+    btn.disabled = _selectedApiNews.size < 7;
+    btn.textContent = `📰 API बंडल भेजें (${_selectedApiNews.size})`;
+}
+
+async function sendApiNewspaperBundle() {
+    if (_selectedApiNews.size < 7) {
+        showToast('कम से कम 7 खबरें चुनें', 'error');
+        return;
+    }
+    if (!confirm(`क्या आप ${_selectedApiNews.size} खबरों का बंडल न्यूज़पेपर जनरेटर को भेजना चाहते हैं?`)) return;
+
+    const btn = document.getElementById('apiBundleSendBtn');
+    btn.disabled = true;
+    btn.textContent = 'भेज रहा है...';
+
+    try {
+        const res = await api('/editor/newspaper-generator/bundle', {
+            method: 'POST',
+            body: JSON.stringify({
+                target_user_id: _selectedApiTargetId,
+                news_ids: Array.from(_selectedApiNews)
+            })
+        });
+
+        if (res.error) {
+            showToast(res.error, 'error');
+            btn.disabled = false;
+            btn.textContent = `📰 API बंडल भेजें (${_selectedApiNews.size})`;
+        } else {
+            showToast(res.message, 'success');
+            _selectedApiNews.clear();
+            updateApiBundleToolbar();
+            await loadNewsForApiTarget();
+        }
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+        btn.disabled = false;
+        btn.textContent = `📰 API बंडल भेजें (${_selectedApiNews.size})`;
+    }
+}
+
+// ==========================================
+// EDITOR MORE OPTIONS AND PDFS SCREEN
+// ==========================================
+
+/**
+ * Full-screen view for 'More (अन्य)' Menu
+ */
+function renderEditorMoreScreen() {
+    const app = document.getElementById('app');
+    app.innerHTML = `
+        ${renderTopBar('editor.title', 'menu')}
+        <main class="page-content" style="padding-bottom: 70px;">
+            <div class="split-pane-header" style="padding: 12px 16px; border-bottom: 1px solid var(--border-color);">
+                <h3 style="margin: 0;">अन्य विकल्प (More Options)</h3>
+            </div>
+            
+            <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 16px; cursor: pointer;" onclick="switchEditorPane('api')">
+                    <div style="background: var(--bg-secondary); padding: 12px; border-radius: 50%; color: var(--accent-blue);">
+                        ${icon('server', 24)}
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 1.1rem; color: var(--text-primary);">न्यूज़पेपर API जनरेटर</div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">रिपोर्टर्स और सब-एडिटर्स के लिए ऑटोमैटिक PDF जनरेट करें</div>
+                    </div>
+                    ${icon('chevron-right', 20)}
+                </div>
+
+                <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 16px; cursor: pointer;" onclick="switchEditorPane('pdfs')">
+                    <div style="background: var(--bg-secondary); padding: 12px; border-radius: 50%; color: var(--accent-orange);">
+                        ${icon('file-text', 24)}
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 1.1rem; color: var(--text-primary);">जनरेटेड PDFs (Generated PDFs)</div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">API द्वारा जनरेट की गई और अपलोड की गई PDF फाइलें देखें</div>
+                    </div>
+                    ${icon('chevron-right', 20)}
+                </div>
+
+                <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 16px; cursor: pointer;" onclick="switchEditorPane('ads')">
+                    <div style="background: var(--bg-secondary); padding: 12px; border-radius: 50%; color: var(--success-color);">
+                        ${icon('dollar-sign', 24)}
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 1.1rem; color: var(--text-primary);" data-i18n="editor.ads_tab">${t('editor.ads_tab')}</div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">विज्ञापन प्रबंधित करें और स्वीकृत करें</div>
+                    </div>
+                    ${icon('chevron-right', 20)}
+                </div>
+            </div>
+        </main>
+        ${renderBottomNav('editor', 'more')}
+    `;
+    applyLanguage();
+}
+
+/**
+ * Full-screen view for Generated PDFs
+ */
+function renderEditorPdfsScreen() {
+    const app = document.getElementById('app');
+    app.innerHTML = `
+        ${renderTopBar('editor.title', 'file-text')}
+        <main class="page-content" style="padding-bottom: 70px;">
+            <div class="split-pane-header" style="padding: 12px 16px; border-bottom: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button class="btn btn-secondary btn-sm" onclick="switchEditorPane('more')">← वापस</button>
+                    <h3 style="margin: 0;">जनरेटेड PDFs</h3>
+                </div>
+            </div>
+            
+            <div id="pdfTargetsSelection" style="padding: 16px;">
+                <h4 style="margin-bottom:12px; color:var(--text-secondary);">यूज़र चुनें (Select User to View PDFs)</h4>
+                <div id="pdfTargetsList" class="user-list" style="display: flex; flex-direction: column; gap: 10px;">
+                    <div class="loading-spinner"></div>
+                </div>
+            </div>
+
+            <div id="pdfViewerSelection" class="hidden" style="padding: 0 8px;">
+                <div class="bundle-toolbar" style="padding: 10px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10;">
+                    <div style="display:flex; align-items:center; gap: 12px;">
+                        <button class="btn btn-secondary btn-sm" onclick="backToPdfTargets()">← वापस</button>
+                        <h4 id="pdfTargetTitle" style="margin:0;"></h4>
+                    </div>
+                    <label class="btn btn-primary btn-sm" style="cursor:pointer; margin:0;">
+                        ${icon('upload', 14)} अपलोड (Upload PDF)
+                        <input type="file" id="manualPdfUpload" accept="application/pdf" style="display:none;" onchange="uploadManualPdf(this)">
+                    </label>
+                </div>
+                <div id="pdfFilesList" style="margin-top: 12px; padding: 0 8px; display: flex; flex-direction: column; gap: 10px;"></div>
+            </div>
+        </main>
+        ${renderBottomNav('editor', 'more')}
+    `;
+    applyLanguage();
+    loadPdfTargets();
+}
+
+let _selectedPdfTargetId = null;
+
+async function loadPdfTargets() {
+    const container = document.getElementById('pdfTargetsList');
+    if (!container) return;
+    try {
+        const data = await api('/editor/api-targets');
+        const targets = data.targets || [];
+        
+        if (targets.length === 0) {
+            container.innerHTML = `<div class="empty-state"><div class="empty-text">कोई API इनेबल्ड व्यक्ति नहीं मिला</div></div>`;
+            return;
+        }
+
+        container.innerHTML = targets.map(t => {
+            const avatarHtml = t.avatar_path 
+                ? `<img src="${t.avatar_path}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">`
+                : `<div class="user-avatar ${t.role}" style="width:40px; height:40px; font-size:18px;">${t.full_name.charAt(0).toUpperCase()}</div>`;
+            const pdfCount = Number(t.pdf_count || 0);
+            
+            return `
+            <div class="card" style="display:flex; align-items:center; gap:16px; cursor:pointer; padding: 12px 16px; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='var(--card-bg)'" onclick="selectPdfTarget(${t.id}, '${escapeHtml(t.full_name)}')">
+                ${avatarHtml}
+                <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+                    <div style="font-weight:600; font-size:1.1rem; color:var(--text-primary);">
+                        ${escapeHtml(t.full_name)}
+                        <span style="font-size:0.75rem; color:var(--text-secondary); font-weight:500; margin-left:6px;">#${t.id}</span>
+                    </div>
+                    <div style="font-size:0.9rem; color:var(--text-secondary); margin-top:4px;">
+                        <strong>${t.role === 'sub_editor' ? 'Sub-Editor' : 'API Reporter'}</strong> <span style="margin: 0 6px;">•</span> ${escapeHtml(t.district || t.city || 'No City')}
+                    </div>
+                    <div style="font-size:0.85rem; color:${pdfCount ? 'var(--accent-green)' : 'var(--text-secondary)'}; margin-top:4px;">
+                        Generated PDFs: ${pdfCount}
+                    </div>
+                </div>
+                ${icon('chevron-right', 20)}
+            </div>
+        `}).join('');
+    } catch (err) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
+    }
+}
+
+function backToPdfTargets() {
+    document.getElementById('pdfTargetsSelection').classList.remove('hidden');
+    document.getElementById('pdfViewerSelection').classList.add('hidden');
+    _selectedPdfTargetId = null;
+}
+
+async function selectPdfTarget(id, name) {
+    _selectedPdfTargetId = id;
+    document.getElementById('pdfTargetsSelection').classList.add('hidden');
+    document.getElementById('pdfViewerSelection').classList.remove('hidden');
+    document.getElementById('pdfTargetTitle').textContent = `${name} की PDFs`;
+    
+    await loadPdfsForSelectedTarget();
+}
+
+async function loadPdfsForSelectedTarget() {
+    const container = document.getElementById('pdfFilesList');
+    container.innerHTML = '<div class="loading-spinner" style="margin:40px auto;"></div>';
+
+    try {
+        const data = await api(`/editor/api-targets/${_selectedPdfTargetId}/pdfs`);
+        const pdfs = data.pdfs || [];
+        
+        if (pdfs.length === 0) {
+            container.innerHTML = `<div class="empty-state"><div class="empty-text">इस यूज़र के लिए कोई PDF नहीं मिली।</div></div>`;
+            return;
+        }
+
+        container.innerHTML = pdfs.map(pdf => {
+            const dateStr = new Date(pdf.created_at).toLocaleString('hi-IN');
+            return `
+                <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 16px;">
+                    <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; color: var(--accent-orange);">
+                        ${icon('file', 32)}
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 1.05rem; color: var(--text-primary); word-break: break-all;">
+                            <a href="${pdf.pdf_url}" target="_blank" style="text-decoration:none; color:inherit;">${escapeHtml(pdf.filename || 'newspaper.pdf')}</a>
+                        </div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px;">${dateStr}</div>
+                    </div>
+                    <a href="${pdf.pdf_url}" download class="btn btn-secondary btn-sm" style="display:flex; align-items:center; gap:6px;">
+                        ${icon('download', 16)} डाउनलोड
+                    </a>
+                </div>
+            `;
+        }).join('');
+    } catch (err) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
+    }
+}
+
+async function uploadManualPdf(input) {
+    if (!input.files || !input.files[0]) return;
+    if (!_selectedPdfTargetId) return;
+
+    const file = input.files[0];
+    if (file.type !== 'application/pdf') {
+        showToast('केवल PDF फाइलें अपलोड की जा सकती हैं।', 'error');
+        input.value = '';
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('pdf', file);
+    formData.append('target_user_id', _selectedPdfTargetId);
+
+    const btnLabel = input.parentElement;
+    const originalHtml = btnLabel.innerHTML;
+    btnLabel.innerHTML = '<div class="loading-spinner" style="width:14px; height:14px;"></div> अपलोड हो रहा है...';
+    btnLabel.style.pointerEvents = 'none';
+
+    try {
+        const token = localStorage.getItem('nms_token');
+        const res = await fetch('/api/webhook/manual-upload', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+        });
+        const data = await res.json();
+        
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        
+        showToast('PDF सफलतापूर्वक अपलोड की गई', 'success');
+        await loadPdfsForSelectedTarget();
+    } catch(err) {
+        showToast(err.message || 'PDF अपलोड करने में विफल', 'error');
+    } finally {
+        btnLabel.innerHTML = originalHtml;
+        btnLabel.style.pointerEvents = 'auto';
+        input.value = ''; // Reset input
     }
 }

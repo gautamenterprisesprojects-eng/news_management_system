@@ -6,9 +6,34 @@ const { verifyToken, requireRole } = require('../middleware/auth');
 const { rewriteArticle } = require('../services/aiRewriter');
 const { resolveUpload } = require('../storage');
 const { deliverForwardedNews, parseExternalNewsId } = require('../services/externalNews');
+const { buildNewspaperPayload, sendNewspaperBundle, getBaseUrl } = require('../services/newspaperGenerator');
 
 // All editor routes require editor role
 router.use(verifyToken, requireRole('editor'));
+
+function editorVisibleClause(filterValue, params) {
+    if (filterValue === 'direct') return 'AND n.sub_editor_id IS NULL';
+    if (filterValue && filterValue !== 'all') {
+        params.push(Number(filterValue));
+        return "AND n.sub_editor_id = ? AND n.sub_editor_status = 'forwarded'";
+    }
+    return "AND (n.sub_editor_id IS NULL OR n.sub_editor_status = 'forwarded')";
+}
+
+function subEditorSelectFields() {
+    return `
+        se.id as sub_editor_id,
+        se.full_name as sub_editor_name,
+        se.name_hi as sub_editor_name_hi,
+        se.name_en as sub_editor_name_en,
+        se.post as sub_editor_post,
+        COALESCE(se.district, se.city) as sub_editor_district
+    `;
+}
+
+function isVisibleToMainEditor(news) {
+    return !news.sub_editor_id || news.sub_editor_status === 'forwarded';
+}
 
 /**
  * GET /api/editor/reporters
@@ -23,23 +48,43 @@ router.get('/reporters', (req, res) => {
     }
 });
 
+router.get('/sub-editors', (req, res) => {
+    try {
+        const subEditors = queryAll(`
+            SELECT id, full_name, name_hi, name_en, post, district, city
+            FROM users
+            WHERE role = 'sub_editor' AND status = 'active'
+            ORDER BY COALESCE(name_hi, full_name) ASC
+        `);
+        res.json({ subEditors });
+    } catch (err) {
+        console.error('Editor get sub-editors error:', err);
+        res.status(500).json({ error: 'Failed to fetch sub-editors.' });
+    }
+});
+
 /**
  * GET /api/editor/news/raw
  */
 router.get('/news/raw', (req, res) => {
     try {
+        const params = [];
+        const visibleClause = editorVisibleClause(req.query.sub_editor_id, params);
         // This is the raw-submission history. Keep processed entries in this
         // response so they remain visible (greyed out) after approval.
         const news = queryAll(`
             SELECT n.id, n.headline, SUBSTR(n.body, 1, 200) as body, n.status,
                    n.category, n.city, n.image_path, n.selected_image_path, n.created_at,
                    n.headline_rewritten, n.body_rewritten,
-                   u.full_name as reporter_name
+                   u.full_name as reporter_name,
+                   ${subEditorSelectFields()}
             FROM news n
             JOIN users u ON n.reporter_id = u.id
+            LEFT JOIN users se ON se.id = n.sub_editor_id
             WHERE n.status IN ('raw', 'processed')
+              ${visibleClause}
             ORDER BY n.created_at DESC
-        `);
+        `, params);
 
         res.json({ news });
     } catch (err) {
@@ -53,16 +98,21 @@ router.get('/news/raw', (req, res) => {
  */
 router.get('/news/processed', (req, res) => {
     try {
+        const params = [];
+        const visibleClause = editorVisibleClause(req.query.sub_editor_id, params);
         const news = queryAll(`
             SELECT n.id, n.headline, n.headline_rewritten,
                    SUBSTR(COALESCE(n.body_rewritten, n.body), 1, 200) as body_rewritten,
                    n.category, n.city, n.image_path, n.selected_image_path, n.ai_provider,
-                   n.processed_at, u.full_name as reporter_name
+                   n.processed_at, n.newspaper_sent_at, u.full_name as reporter_name,
+                   ${subEditorSelectFields()}
             FROM news n
             JOIN users u ON n.reporter_id = u.id
+            LEFT JOIN users se ON se.id = n.sub_editor_id
             WHERE n.status = 'processed'
+              ${visibleClause}
             ORDER BY n.processed_at DESC
-        `);
+        `, params);
 
         res.json({ news });
     } catch (err) {
@@ -149,6 +199,214 @@ router.get('/news/published', (req, res) => {
     }
 });
 
+router.get('/api-targets', (req, res) => {
+    try {
+        const targets = queryAll(`
+            SELECT id, full_name, name_hi, name_en, post, district, city, role, avatar_path, print_designation
+            FROM users
+            WHERE (role = 'sub_editor' OR (role = 'reporter' AND is_api_enabled = 1))
+              AND status = 'active'
+            ORDER BY role DESC, COALESCE(name_hi, full_name) ASC
+        `);
+        const targetsWithCounts = targets.map(target => {
+            const params = [target.id];
+            const where = target.role === 'sub_editor'
+                ? "n.sub_editor_id = ? AND n.sub_editor_status = 'forwarded'"
+                : 'n.reporter_id = ?';
+            const count = queryGet(`
+                SELECT COUNT(*) as c
+                FROM news n
+                WHERE ${where}
+                  AND n.status = 'processed'
+                  AND n.headline_rewritten IS NOT NULL
+                  AND TRIM(n.headline_rewritten) != ''
+                  AND n.body_rewritten IS NOT NULL
+                  AND TRIM(n.body_rewritten) != ''
+            `, params)?.c || 0;
+            const pdfCount = queryGet('SELECT COUNT(*) as c FROM api_pdfs WHERE target_user_id = ?', [target.id])?.c || 0;
+            return { ...target, processed_rewritten_count: count, pdf_count: pdfCount };
+        });
+        res.json({ targets: targetsWithCounts });
+    } catch (err) {
+        console.error('Editor get api targets error:', err);
+        res.status(500).json({ error: 'Failed to fetch API targets.' });
+    }
+});
+
+router.get('/api-targets/:id/news', (req, res) => {
+    try {
+        const targetId = Number(req.params.id);
+        const target = queryGet("SELECT role FROM users WHERE id = ? AND status = 'active'", [targetId]);
+        
+        if (!target) return res.status(404).json({ error: 'Target not found.' });
+
+        let query = '';
+        let params = [];
+
+        if (target.role === 'sub_editor') {
+            query = `
+                SELECT n.*, u.full_name as reporter_name
+                FROM news n
+                JOIN users u ON u.id = n.reporter_id
+                WHERE n.sub_editor_id = ?
+                  AND n.sub_editor_status = 'forwarded'
+                  AND n.status = 'processed'
+                  AND n.headline_rewritten IS NOT NULL
+                  AND TRIM(n.headline_rewritten) != ''
+                  AND n.body_rewritten IS NOT NULL
+                  AND TRIM(n.body_rewritten) != ''
+                ORDER BY n.processed_at ASC
+            `;
+            params = [targetId];
+        } else if (target.role === 'reporter') {
+            query = `
+                SELECT n.*, u.full_name as reporter_name
+                FROM news n
+                JOIN users u ON u.id = n.reporter_id
+                WHERE n.reporter_id = ?
+                  AND n.status = 'processed'
+                  AND n.headline_rewritten IS NOT NULL
+                  AND TRIM(n.headline_rewritten) != ''
+                  AND n.body_rewritten IS NOT NULL
+                  AND TRIM(n.body_rewritten) != ''
+                ORDER BY n.processed_at ASC
+            `;
+            params = [targetId];
+        }
+
+        const news = queryAll(query, params);
+        res.json({ news });
+    } catch(err) {
+        console.error('Editor get api target news error:', err);
+        res.status(500).json({ error: 'Failed to fetch news.' });
+    }
+});
+
+router.get('/api-targets/:id/pdfs', (req, res) => {
+    try {
+        const targetId = Number(req.params.id);
+        if (!Number.isInteger(targetId) || targetId <= 0) {
+            return res.status(400).json({ error: 'Invalid target id.' });
+        }
+
+        const target = queryGet(`
+            SELECT id, role, is_api_enabled
+            FROM users
+            WHERE id = ? AND status = 'active'
+              AND (role = 'sub_editor' OR (role = 'reporter' AND is_api_enabled = 1))
+        `, [targetId]);
+        if (!target) return res.status(404).json({ error: 'PDF target not found.' });
+
+        const pdfs = queryAll(
+            'SELECT id, pdf_url, filename, created_at FROM api_pdfs WHERE target_user_id = ? ORDER BY created_at DESC',
+            [targetId]
+        );
+
+        res.json({ pdfs });
+    } catch (err) {
+        console.error('Editor get target PDFs error:', err);
+        res.status(500).json({ error: 'Failed to fetch PDFs.' });
+    }
+});
+
+router.post('/newspaper-generator/bundle', async (req, res) => {
+    try {
+        const targetUserId = Number(req.body.target_user_id || req.body.sub_editor_id);
+        const newsIds = Array.isArray(req.body.news_ids)
+            ? req.body.news_ids.map(Number).filter(Number.isInteger)
+            : [];
+
+        if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+            return res.status(400).json({ error: 'Target selection is required.' });
+        }
+        if (newsIds.length < 7) {
+            return res.status(400).json({ error: 'Select at least 7 processed news items for the newspaper generator.' });
+        }
+
+        const targetUser = queryGet(`
+            SELECT id, full_name, name_hi, name_en, post, district, city, role, is_api_enabled, print_designation, avatar_path
+            FROM users
+            WHERE id = ? AND status = 'active'
+        `, [targetUserId]);
+        
+        if (!targetUser) return res.status(404).json({ error: 'Target not found.' });
+        if (targetUser.role === 'reporter' && !targetUser.is_api_enabled) {
+            return res.status(400).json({ error: 'Reporter is not API-enabled.' });
+        }
+
+        const placeholders = newsIds.map(() => '?').join(',');
+        
+        let articles = [];
+        if (targetUser.role === 'sub_editor') {
+            articles = queryAll(`
+                SELECT n.*, u.full_name as reporter_name, u.name_hi as reporter_name_hi, u.name_en as reporter_name_en
+                FROM news n
+                JOIN users u ON u.id = n.reporter_id
+                WHERE n.id IN (${placeholders})
+                  AND n.sub_editor_id = ?
+                  AND n.sub_editor_status = 'forwarded'
+                  AND n.status = 'processed'
+                  AND n.headline_rewritten IS NOT NULL
+                  AND TRIM(n.headline_rewritten) != ''
+                  AND n.body_rewritten IS NOT NULL
+                  AND TRIM(n.body_rewritten) != ''
+                ORDER BY n.processed_at ASC, n.id ASC
+            `, [...newsIds, targetUserId]);
+        } else {
+            articles = queryAll(`
+                SELECT n.*, u.full_name as reporter_name, u.name_hi as reporter_name_hi, u.name_en as reporter_name_en
+                FROM news n
+                JOIN users u ON u.id = n.reporter_id
+                WHERE n.id IN (${placeholders})
+                  AND n.reporter_id = ?
+                  AND n.status = 'processed'
+                  AND n.headline_rewritten IS NOT NULL
+                  AND TRIM(n.headline_rewritten) != ''
+                  AND n.body_rewritten IS NOT NULL
+                  AND TRIM(n.body_rewritten) != ''
+                ORDER BY n.processed_at ASC, n.id ASC
+            `, [...newsIds, targetUserId]);
+        }
+
+        if (articles.length !== newsIds.length) {
+            return res.status(400).json({ error: 'Some selected news items are invalid or do not belong to the target.' });
+        }
+
+        const imageRows = queryAll(`
+            SELECT news_id, id, image_path, is_selected, sort_order
+            FROM news_images
+            WHERE news_id IN (${placeholders})
+            ORDER BY news_id ASC, sort_order ASC, id ASC
+        `, newsIds);
+        const imagesByNewsId = new Map();
+        for (const image of imageRows) {
+            if (!imagesByNewsId.has(image.news_id)) imagesByNewsId.set(image.news_id, []);
+            imagesByNewsId.get(image.news_id).push(image);
+        }
+
+        const payload = buildNewspaperPayload({
+            targetUser,
+            articles,
+            imagesByNewsId,
+            baseUrl: getBaseUrl(req)
+        });
+        const delivery = await sendNewspaperBundle(payload);
+        if (!delivery.delivered) {
+            return res.status(503).json({ error: delivery.error || 'Newspaper generator API is not configured.' });
+        }
+
+        queryRun(
+            `UPDATE news SET newspaper_sent_at = datetime('now', 'localtime') WHERE id IN (${placeholders})`,
+            newsIds
+        );
+
+        res.json({ success: true, message: 'Bundle sent to newspaper generator.', delivery, payloadPreview: payload });
+    } catch (err) {
+        console.error('Newspaper generator bundle error:', err);
+        res.status(500).json({ error: `Newspaper generator failed: ${err.message}` });
+    }
+});
+
 /**
  * GET /api/editor/news/:id
  * IMPORTANT: This wildcard route must stay AFTER all named /news/* routes
@@ -156,9 +414,11 @@ router.get('/news/published', (req, res) => {
 router.get('/news/:id', (req, res) => {
     try {
         const news = queryGet(`
-            SELECT n.*, u.full_name as reporter_name
+            SELECT n.*, u.full_name as reporter_name,
+                   ${subEditorSelectFields()}
             FROM news n
             JOIN users u ON n.reporter_id = u.id
+            LEFT JOIN users se ON se.id = n.sub_editor_id
             WHERE n.id = ?
         `, [req.params.id]);
 
@@ -344,6 +604,9 @@ router.post('/news/:id/rewrite', async (req, res) => {
         if (!news) {
             return res.status(404).json({ error: 'News not found or not in raw status.' });
         }
+        if (!isVisibleToMainEditor(news)) {
+            return res.status(403).json({ error: 'This news is still pending with the sub-editor.' });
+        }
 
         const {
             provider = null,
@@ -416,6 +679,9 @@ router.put('/news/:id/content', (req, res) => {
         if (!news) {
             return res.status(404).json({ error: 'News not found.' });
         }
+        if (!isVisibleToMainEditor(news)) {
+            return res.status(403).json({ error: 'This news is still pending with the sub-editor.' });
+        }
         if (!['raw', 'processed'].includes(news.status)) {
             return res.status(400).json({ error: 'News can only be edited during rewrite review or processed review.' });
         }
@@ -451,6 +717,9 @@ router.put('/news/:id/approve', (req, res) => {
         if (!news) {
             return res.status(404).json({ error: 'News not found.' });
         }
+        if (!isVisibleToMainEditor(news)) {
+            return res.status(403).json({ error: 'This news is still pending with the sub-editor.' });
+        }
         if (!['raw', 'processed'].includes(news.status)) {
             return res.status(400).json({ error: 'Only raw or processed news can be approved.' });
         }
@@ -473,6 +742,29 @@ router.put('/news/:id/approve', (req, res) => {
     } catch (err) {
         console.error('Editor approve error:', err);
         res.status(500).json({ error: 'Failed to approve news.' });
+    }
+});
+
+/**
+ * POST /api/editor/news/:id/forward-operator
+ * Forward processed news to operators without sending it to website APIs.
+ */
+router.post('/news/:id/forward-operator', (req, res) => {
+    try {
+        const news = queryGet('SELECT * FROM news WHERE id = ? AND status = ?', [req.params.id, 'processed']);
+        if (!news) {
+            return res.status(400).json({ error: 'News must be processed before forwarding.' });
+        }
+
+        queryRun(
+            "UPDATE news SET status = 'forwarded', forwarded_at = datetime('now', 'localtime') WHERE id = ?",
+            [news.id]
+        );
+
+        res.json({ success: true, message: 'News forwarded to operators.' });
+    } catch (err) {
+        console.error('Editor operator-only forward error:', err);
+        res.status(500).json({ error: 'Failed to forward news to operators.' });
     }
 });
 
@@ -582,6 +874,9 @@ router.post('/news/:id/reject', (req, res) => {
         const { reason } = req.body;
         const news = queryGet("SELECT * FROM news WHERE id = ? AND status IN ('raw', 'processed')", [req.params.id]);
         if (!news) return res.status(404).json({ error: 'News not found.' });
+        if (!isVisibleToMainEditor(news)) {
+            return res.status(403).json({ error: 'This news is still pending with the sub-editor.' });
+        }
 
         queryRun(
             "UPDATE news SET status = 'rejected', rejected_at = datetime('now', 'localtime'), rejected_by = ?, reject_reason = ? WHERE id = ?",

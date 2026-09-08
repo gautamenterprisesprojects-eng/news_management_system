@@ -49,6 +49,14 @@ function renderTopBar(titleKey, icon) {
                     <div class="user-dropdown-item" onclick="window.location.hash='#/operator'; toggleUserDropdown();">
                         <i data-lucide="layout-list"></i> <span data-i18n="common.nav_operator_panel">${t('common.nav_operator_panel')}</span>
                     </div>
+                ` : user.role === 'sub_editor' ? `
+                    <div class="user-dropdown-item" onclick="window.location.hash='#/sub-editor'; toggleUserDropdown();">
+                        <i data-lucide="clipboard-check"></i> <span>Sub-editor Panel</span>
+                    </div>
+                ` : user.role === 'ad_manager' ? `
+                    <div class="user-dropdown-item" onclick="window.location.hash='#/ad-manager'; toggleUserDropdown();">
+                        <i data-lucide="badge-indian-rupee"></i> <span>Ad Manager Panel</span>
+                    </div>
                 ` : user.role === 'reporter' ? `
                     <div class="user-dropdown-item" onclick="window.location.hash='#/reporter'; toggleUserDropdown();">
                         <i data-lucide="file-plus-2"></i> <span data-i18n="common.nav_reporter_panel">${t('common.nav_reporter_panel')}</span>
@@ -87,6 +95,10 @@ function renderBottomNav(role, activeTab) {
                 { id: 'approved', icon: 'check-circle-2', label: 'reporter.nav_approved' },
                 { id: 'rejected', icon: 'x-circle', label: 'reporter.nav_rejected' }
             ];
+            const uReporter = JSON.parse(localStorage.getItem('nms_user') || '{}');
+            if (uReporter.is_api_enabled) {
+                items.push({ id: 'pdfs', icon: 'file-text', label: 'PDFs' });
+            }
             break;
         case 'editor':
             items = [
@@ -94,12 +106,32 @@ function renderBottomNav(role, activeTab) {
                 { id: 'processed', icon: 'check-check', label: 'editor.processed_tab' },
                 { id: 'forwarded', icon: 'send', label: 'editor.forwarded_tab' },
                 { id: 'published', icon: 'globe', label: 'editor.published_tab' },
+                { id: 'more', icon: 'menu', label: 'अन्य' }
             ];
+            break;
+        case 'sub_editor':
+            items = [
+                { id: 'pending', icon: 'inbox', label: 'लंबित' },
+                { id: 'forwarded', icon: 'send', label: 'भेजी' },
+                { id: 'rejected', icon: 'x-circle', label: 'रिजेक्ट' },
+                { id: 'ads', icon: 'badge-indian-rupee', label: 'विज्ञापन' }
+            ];
+            {
+                const uSubEditor = JSON.parse(localStorage.getItem('nms_user') || '{}');
+                if (uSubEditor.is_api_enabled) {
+                    items.push({ id: 'pdfs', icon: 'file-text', label: 'PDF' });
+                }
+            }
             break;
         case 'operator':
             items = [
                 { id: 'news', icon: 'newspaper', label: 'operator.nav_news' },
                 { id: 'published', icon: 'send', label: 'editor.published_tab' },
+            ];
+            break;
+        case 'ad_manager':
+            items = [
+                { id: 'ads', icon: 'badge-indian-rupee', label: 'विज्ञापन' }
             ];
             break;
         case 'admin':
@@ -115,7 +147,7 @@ function renderBottomNav(role, activeTab) {
         <div class="bottom-nav-item ${activeTab === item.id ? 'active' : ''}"
              onclick="switchTab('${item.id}')" data-tab="${item.id}">
             <span class="nav-icon"><i data-lucide="${item.icon}"></i></span>
-            <span class="nav-label" data-i18n="${item.label}">${t(item.label)}</span>
+            <span class="nav-label" ${item.label.includes('.') ? `data-i18n="${item.label}"` : ''}>${item.label.includes('.') ? t(item.label) : item.label}</span>
         </div>
     `).join('');
 
@@ -129,7 +161,7 @@ function toggleUserDropdown() {
     const dropdown = document.getElementById('userDropdown');
     if (dropdown) {
         dropdown.classList.toggle('show');
-        updateEditorAlertButton();
+        if (typeof updateEditorAlertButton === 'function') updateEditorAlertButton();
     }
 }
 

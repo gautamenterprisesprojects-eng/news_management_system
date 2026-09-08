@@ -774,6 +774,24 @@ input, textarea, select, button {
     border: 1px solid #fecaca;
 }
 
+.status-badge.approved {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+}
+
+.status-badge.rejected {
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+}
+
+.status-badge.pending {
+    background: #ffedd5;
+    color: #c2410c;
+    border: 1px solid #fed7aa;
+}
+
 /* ============================================================
    BUTTONS
    ============================================================ */

@@ -6,6 +6,7 @@ const uploadsDir = path.join(dataDir, 'uploads');
 const avatarsDir = process.env.DATA_DIR
     ? path.join(uploadsDir, 'avatars')
     : path.join(projectRoot, 'public', 'uploads', 'avatars');
+const pdfsDir = path.join(uploadsDir, 'pdfs');
 
 function resolveUpload(urlPath) {
     if (typeof urlPath !== 'string' || !urlPath.startsWith('/uploads/')) {
@@ -19,4 +20,4 @@ function resolveUpload(urlPath) {
     return target;
 }
 
-module.exports = { dataDir, uploadsDir, avatarsDir, resolveUpload };
+module.exports = { dataDir, uploadsDir, avatarsDir, pdfsDir, resolveUpload };

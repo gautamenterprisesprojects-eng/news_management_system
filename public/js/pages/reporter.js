@@ -429,3 +429,53 @@ async function loadReporterRejectedNews() {
         container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
     }
 }
+
+function renderReporterPdfsTab() {
+    const content = document.getElementById('reporterContent');
+    content.innerHTML = `
+        <div class="page-header">
+            <h2>जनरेटेड PDFs</h2>
+            <p>API द्वारा जनरेट की गई आपकी PDF फाइलें</p>
+        </div>
+        <div id="reporterPdfsList">
+            <div class="loading-spinner" style="margin: 40px auto;"></div>
+        </div>
+    `;
+    applyLanguage();
+    loadReporterPdfs();
+}
+
+async function loadReporterPdfs() {
+    const container = document.getElementById('reporterPdfsList');
+    try {
+        const data = await api('/webhook/my-pdfs');
+        const pdfs = data.pdfs || [];
+        
+        if (pdfs.length === 0) {
+            container.innerHTML = `<div class="empty-state"><div class="empty-text">कोई PDF उपलब्ध नहीं है</div></div>`;
+            return;
+        }
+
+        container.innerHTML = pdfs.map(pdf => {
+            const dateStr = new Date(pdf.created_at).toLocaleString('hi-IN');
+            return `
+                <div class="card" style="padding: 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 16px;">
+                    <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; color: var(--accent-orange);">
+                        ${icon('file', 32)}
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 1.05rem; color: var(--text-primary); word-break: break-all;">
+                            <a href="${pdf.pdf_url}" target="_blank" style="text-decoration:none; color:inherit;">${escapeHtml(pdf.filename || 'newspaper.pdf')}</a>
+                        </div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px;">${dateStr}</div>
+                    </div>
+                    <a href="${pdf.pdf_url}" download class="btn btn-secondary btn-sm" style="display:flex; align-items:center; gap:6px;">
+                        ${icon('download', 16)} डाउनलोड
+                    </a>
+                </div>
+            `;
+        }).join('');
+    } catch (err) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-text">Error loading PDFs</div></div>`;
+    }
+}

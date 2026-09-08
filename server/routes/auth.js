@@ -31,7 +31,7 @@ router.post('/login', (req, res) => {
         }
 
         const token = jwt.sign(
-            { id: user.id, username: user.username, role: user.role },
+            { id: user.id, username: user.username, role: user.role, is_api_enabled: user.is_api_enabled },
             JWT_SECRET,
             { expiresIn: '24h' }
         );
@@ -42,7 +42,9 @@ router.post('/login', (req, res) => {
                 id: user.id,
                 username: user.username,
                 full_name: user.full_name,
-                role: user.role
+                role: user.role,
+                is_api_enabled: user.is_api_enabled,
+                avatar_path: user.avatar_path
             }
         });
     } catch (err) {

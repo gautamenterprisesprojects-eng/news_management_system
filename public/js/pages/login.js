@@ -92,6 +92,7 @@ async function handleLogin(e) {
             admin: '#/admin',
             reporter: '#/reporter',
             editor: '#/editor',
+            sub_editor: '#/sub-editor',
             operator: '#/operator'
         };
 

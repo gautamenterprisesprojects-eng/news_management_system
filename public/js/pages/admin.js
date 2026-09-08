@@ -4,6 +4,7 @@
 
 let adminTab = 'dashboard';
 let adminUserFilter = 'all';
+let adminSubEditors = [];
 
 function renderAdmin() {
     const app = document.getElementById('app');
@@ -29,6 +30,8 @@ async function renderAdminDashboard() {
             <div class="stat-card blue"><div class="loading-spinner" style="margin:0 auto;width:20px;height:20px;"></div></div>
             <div class="stat-card green"><div class="loading-spinner" style="margin:0 auto;width:20px;height:20px;"></div></div>
             <div class="stat-card amber"><div class="loading-spinner" style="margin:0 auto;width:20px;height:20px;"></div></div>
+            <div class="stat-card purple"><div class="loading-spinner" style="margin:0 auto;width:20px;height:20px;"></div></div>
+            <div class="stat-card blue"><div class="loading-spinner" style="margin:0 auto;width:20px;height:20px;"></div></div>
             <div class="stat-card purple"><div class="loading-spinner" style="margin:0 auto;width:20px;height:20px;"></div></div>
         </div>
     `;
@@ -72,6 +75,16 @@ async function renderAdminDashboard() {
                 <div class="stat-value">${stats.news_forwarded}</div>
                 <div class="stat-label" data-i18n="admin.news_forwarded">${t('admin.news_forwarded')}</div>
             </div>
+            <div class="stat-card amber">
+                <div class="stat-icon">👥</div>
+                <div class="stat-value">${stats.total_sub_editors}</div>
+                <div class="stat-label">Sub-Editors</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-icon">📢</div>
+                <div class="stat-value">${stats.total_ad_managers}</div>
+                <div class="stat-label">Ad Managers</div>
+            </div>
         `;
         applyLanguage();
     } catch (err) {
@@ -113,13 +126,19 @@ async function renderAdminUsers() {
                 </div>
                 <div class="form-group">
                     <label class="form-label" data-i18n="admin.role">${t('admin.role')}</label>
-                    <select class="form-input form-select" id="newUserRole">
+                    <select class="form-input form-select" id="newUserRole" onchange="handleNewUserRoleChange()">
                         <option value="" data-i18n="admin.select_role">${t('admin.select_role')}</option>
                         <option value="reporter" data-i18n="admin.role_reporter">${t('admin.role_reporter')}</option>
                         <option value="editor" data-i18n="admin.role_editor">${t('admin.role_editor')}</option>
                         <option value="operator" data-i18n="admin.role_operator">${t('admin.role_operator')}</option>
+                        <option value="sub_editor">Sub-Editor</option>
+                        <option value="ad_manager">Ad Manager</option>
                     </select>
                 </div>
+                
+                <!-- Dynamic fields container -->
+                <div id="newUserDynamicFields"></div>
+
                 <div class="form-group">
                     <label class="form-label">Designation / Post</label>
                     <input type="text" class="form-input" id="newUserPost" placeholder="e.g. Senior Reporter">
@@ -128,7 +147,7 @@ async function renderAdminUsers() {
                     <label class="form-label">Hindi Name</label>
                     <input type="text" class="form-input" id="newUserNameHi" placeholder="e.g. राकेश सिंह">
                 </div>
-                <div class="flex gap-sm">
+                <div class="flex gap-sm mt-4">
                     <button class="btn btn-primary" id="createUserBtn" onclick="createUser()" data-i18n="admin.create_btn">${t('admin.create_btn')}</button>
                     <button class="btn btn-secondary" onclick="hideCreateUserForm()" data-i18n="common.cancel">${t('common.cancel')}</button>
                 </div>
@@ -140,6 +159,8 @@ async function renderAdminUsers() {
             <div class="role-tab ${adminUserFilter === 'reporter' ? 'active' : ''}" onclick="filterUsers('reporter')" data-i18n="admin.reporters">${t('admin.reporters')}</div>
             <div class="role-tab ${adminUserFilter === 'editor' ? 'active' : ''}" onclick="filterUsers('editor')" data-i18n="admin.editors">${t('admin.editors')}</div>
             <div class="role-tab ${adminUserFilter === 'operator' ? 'active' : ''}" onclick="filterUsers('operator')" data-i18n="admin.operators">${t('admin.operators')}</div>
+            <div class="role-tab ${adminUserFilter === 'sub_editor' ? 'active' : ''}" onclick="filterUsers('sub_editor')">Sub-Editors</div>
+            <div class="role-tab ${adminUserFilter === 'ad_manager' ? 'active' : ''}" onclick="filterUsers('ad_manager')">Ad Managers</div>
         </div>
 
         <div id="usersList">
@@ -158,6 +179,84 @@ function hideCreateUserForm() {
     document.getElementById('createUserSection').classList.add('hidden');
 }
 
+let _adminEditorsCache = [];
+let _adminTargetsCache = [];
+
+async function handleNewUserRoleChange() {
+    const role = document.getElementById('newUserRole').value;
+    const dynamicFields = document.getElementById('newUserDynamicFields');
+    dynamicFields.innerHTML = '';
+
+    if (!role) return;
+
+    if (role === 'sub_editor' || role === 'ad_manager') {
+        if (_adminEditorsCache.length === 0) {
+            const res = await api('/admin/editors');
+            if (!res.error) _adminEditorsCache = res.editors;
+        }
+
+        let html = '';
+        if (role === 'sub_editor') {
+            html += `
+                <div class="form-group">
+                    <label class="form-label">District / City</label>
+                    <input type="text" class="form-input" id="newUserDistrict" placeholder="e.g. Indore">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">English Name</label>
+                    <input type="text" class="form-input" id="newUserNameEn" placeholder="e.g. Rakesh Singh">
+                </div>
+            `;
+        }
+
+        html += `
+            <div class="form-group">
+                <label class="form-label">Assign to Main Editor</label>
+                <select class="form-input form-select" id="newUserAssignedEditor">
+                    <option value="">-- Select Main Editor --</option>
+                    ${_adminEditorsCache.map(e => `<option value="${e.id}">${escapeHtml(e.full_name)} (${escapeHtml(e.city || 'No City')})</option>`).join('')}
+                </select>
+            </div>
+        `;
+        dynamicFields.innerHTML = html;
+    } else if (role === 'reporter' || role === 'operator') {
+        if (_adminTargetsCache.length === 0) {
+            const res = await api('/admin/assignable-targets');
+            if (!res.error) _adminTargetsCache = res.targets;
+        }
+
+        dynamicFields.innerHTML = `
+            <div class="form-group">
+                <label class="form-label">Assign to Editor / Sub-Editor</label>
+                <select class="form-input form-select" id="newUserAssignedTarget">
+                    <option value="">-- Direct (No Assignment) --</option>
+                    ${_adminTargetsCache.map(t => {
+                        const roleLabel = t.role === 'editor' ? 'एडिटर' : 'सब-एडिटर';
+                        const place = t.district || t.city || 'No Place';
+                        return `<option value="${t.id}" data-role="${t.role}">${escapeHtml(t.full_name)} (${roleLabel} · ${escapeHtml(place)})</option>`;
+                    }).join('')}
+                </select>
+            </div>
+        `;
+    }
+
+    if (role === 'reporter' || role === 'sub_editor') {
+        dynamicFields.innerHTML += `
+            <div class="form-group" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                    <input type="checkbox" id="newUserIsApiEnabled" style="width:16px; height:16px;">
+                    <strong>Enable API Newspaper Generation</strong>
+                </label>
+                <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">If enabled, this user will appear in the Main Editor's API tab.</p>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Print Designation (For Newspaper API)</label>
+                <input type="text" class="form-input" id="newUserPrintDesignation" placeholder="e.g. Special Correspondent">
+            </div>
+        `;
+    }
+}
+
 async function createUser() {
     const btn = document.getElementById('createUserBtn');
     const full_name = document.getElementById('newUserFullName').value.trim();
@@ -166,6 +265,32 @@ async function createUser() {
     const role = document.getElementById('newUserRole').value;
     const post = document.getElementById('newUserPost').value.trim();
     const name_hi = document.getElementById('newUserNameHi').value.trim();
+    
+    // Dynamic fields
+    const districtEl = document.getElementById('newUserDistrict');
+    const nameEnEl = document.getElementById('newUserNameEn');
+    const assignedEditorEl = document.getElementById('newUserAssignedEditor');
+    const assignedTargetEl = document.getElementById('newUserAssignedTarget');
+    const isApiEnabledEl = document.getElementById('newUserIsApiEnabled');
+    const printDesignationEl = document.getElementById('newUserPrintDesignation');
+
+    const district = districtEl ? districtEl.value.trim() : '';
+    const name_en = nameEnEl ? nameEnEl.value.trim() : '';
+    const assigned_editor_id = assignedEditorEl ? assignedEditorEl.value : null;
+    const is_api_enabled = isApiEnabledEl ? (isApiEnabledEl.checked ? 1 : 0) : 0;
+    const print_designation = printDesignationEl ? printDesignationEl.value.trim() : '';
+    
+    let assigned_sub_editor_id = null;
+    let final_assigned_editor_id = assigned_editor_id;
+
+    if (assignedTargetEl && assignedTargetEl.value) {
+        const option = assignedTargetEl.options[assignedTargetEl.selectedIndex];
+        if (option.dataset.role === 'sub_editor') {
+            assigned_sub_editor_id = assignedTargetEl.value;
+        } else if (option.dataset.role === 'editor') {
+            final_assigned_editor_id = assignedTargetEl.value;
+        }
+    }
 
     if (!full_name || !username || !password || !role) {
         showToast(t('common.required'), 'error');
@@ -178,7 +303,13 @@ async function createUser() {
     try {
         const data = await api('/admin/users', {
             method: 'POST',
-            body: JSON.stringify({ username, password, full_name, role, post, name_hi })
+            body: JSON.stringify({ 
+                username, password, full_name, role, post, name_hi, name_en, district,
+                assigned_editor_id: final_assigned_editor_id,
+                assigned_sub_editor_id,
+                is_api_enabled,
+                print_designation
+            })
         });
 
         if (data.error) {
@@ -192,6 +323,7 @@ async function createUser() {
             document.getElementById('newUserRole').value = '';
             document.getElementById('newUserPost').value = '';
             document.getElementById('newUserNameHi').value = '';
+            document.getElementById('newUserDynamicFields').innerHTML = '';
             loadUsers();
         }
     } catch (err) {
@@ -238,8 +370,8 @@ async function loadUsers() {
                     <div class="username">@${u.username} · ${u.role}${u.post ? ` · ${escapeHtml(u.post)}` : ''}</div>
                 </div>
                 <div class="user-status ${u.status}" title="${u.status}"></div>
-                <div class="flex gap-sm">
-                    <button class="btn btn-ghost btn-sm" onclick="editUserModal(${u.id}, '${escapeHtml(u.full_name)}', '${u.status}', '${escapeHtml(u.post || '')}', '${escapeHtml(u.name_hi || '')}')">
+                <div class="flex gap-sm mt-2">
+                    <button class="btn btn-ghost btn-sm" onclick="editUserModal(${u.id}, '${escapeHtml(u.full_name)}', '${u.status}', '${escapeHtml(u.post || '')}', '${escapeHtml(u.name_hi || '')}', '${escapeHtml(u.name_en || '')}', '${escapeHtml(u.district || '')}', '${u.role}', ${u.is_api_enabled || 0}, '${escapeHtml(u.print_designation || '')}')">
                         ✏️
                     </button>
                     ${u.status === 'active'
@@ -254,10 +386,10 @@ async function loadUsers() {
     }
 }
 
-function editUserModal(id, name, status, post = '', name_hi = '') {
+function editUserModal(id, name, status, post = '', name_hi = '', name_en = '', district = '', role = '', is_api_enabled = 0, print_designation = '') {
     const html = `
         <div class="modal-overlay" id="articleModal" onclick="closeModalOutside(event)">
-            <div class="modal-content" onclick="event.stopPropagation()" style="max-height:80vh;">
+            <div class="modal-content" onclick="event.stopPropagation()" style="max-height:90vh; overflow-y:auto;">
                 <div class="modal-handle"></div>
                 <button class="modal-close" onclick="closeArticleModal()">✕</button>
                 <div class="modal-body">
@@ -274,32 +406,68 @@ function editUserModal(id, name, status, post = '', name_hi = '') {
                         <label class="form-label">Hindi Name</label>
                         <input type="text" class="form-input" id="editUserNameHi" value="${name_hi}">
                     </div>
+                    ${role === 'sub_editor' ? `
+                        <div class="form-group">
+                            <label class="form-label">English Name</label>
+                            <input type="text" class="form-input" id="editUserNameEn" value="${name_en}">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">District / City</label>
+                            <input type="text" class="form-input" id="editUserDistrict" value="${district}">
+                        </div>
+                    ` : ''}
+                    ${(role === 'reporter' || role === 'sub_editor') ? `
+                        <div class="form-group" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                <input type="checkbox" id="editUserIsApiEnabled" ${is_api_enabled ? 'checked' : ''} style="width:16px; height:16px;">
+                                <strong>Enable API Newspaper Generation</strong>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Print Designation (For Newspaper API)</label>
+                            <input type="text" class="form-input" id="editUserPrintDesignation" value="${print_designation}">
+                        </div>
+                    ` : ''}
                     <div class="form-group">
                         <label class="form-label" data-i18n="admin.new_password">${t('admin.new_password')}</label>
                         <input type="password" class="form-input" id="editUserPassword" placeholder="****">
                     </div>
-                    <button class="btn btn-primary btn-full" onclick="updateUser(${id})" data-i18n="admin.update_btn">${t('admin.update_btn')}</button>
+                    <div class="form-group" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                        <label class="form-label">Profile Photo (Admin Upload)</label>
+                        <input type="file" class="form-input" id="editUserAvatar" accept="image/*">
+                        <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">Upload an image to set or update this user's profile photo.</p>
+                    </div>
+                    <button class="btn btn-primary btn-full mt-4" onclick="updateUser(${id}, '${role}')" data-i18n="admin.update_btn">${t('admin.update_btn')}</button>
                 </div>
             </div>
         </div>
     `;
     closeArticleModal();
     document.body.insertAdjacentHTML('beforeend', html);
-    document.body.style.overflow = 'hidden';
+    document.body.style.overflow = ''; // Let modal scroll
     applyLanguage();
 }
 
-async function updateUser(id) {
+async function updateUser(id, role) {
     const full_name = document.getElementById('editUserName').value.trim();
     const password = document.getElementById('editUserPassword').value;
     const post = document.getElementById('editUserPost').value.trim();
     const name_hi = document.getElementById('editUserNameHi').value.trim();
+    
+    const nameEnEl = document.getElementById('editUserNameEn');
+    const districtEl = document.getElementById('editUserDistrict');
+    const isApiEnabledEl = document.getElementById('editUserIsApiEnabled');
+    const printDesignationEl = document.getElementById('editUserPrintDesignation');
 
     const body = {};
     if (full_name) body.full_name = full_name;
     if (password) body.password = password;
     if (post !== undefined) body.post = post;
     if (name_hi !== undefined) body.name_hi = name_hi;
+    if (nameEnEl) body.name_en = nameEnEl.value.trim();
+    if (districtEl) body.district = districtEl.value.trim();
+    if (isApiEnabledEl) body.is_api_enabled = isApiEnabledEl.checked ? 1 : 0;
+    if (printDesignationEl) body.print_designation = printDesignationEl.value.trim();
 
     try {
         const data = await api(`/admin/users/${id}`, {
@@ -309,11 +477,28 @@ async function updateUser(id) {
 
         if (data.error) {
             showToast(data.error, 'error');
-        } else {
-            showToast(t('admin.update_success'), 'success');
-            closeArticleModal();
-            loadUsers();
+            return;
         }
+
+        const avatarInput = document.getElementById('editUserAvatar');
+        if (avatarInput && avatarInput.files.length > 0) {
+            const formData = new FormData();
+            formData.append('avatar', avatarInput.files[0]);
+            
+            const avatarRes = await fetch(`/api/admin/users/${id}/avatar`, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + localStorage.getItem('nms_token') },
+                body: formData
+            });
+            const avatarData = await avatarRes.json();
+            if (avatarData.error) {
+                showToast(avatarData.error, 'error');
+            }
+        }
+
+        showToast(t('admin.update_success'), 'success');
+        closeArticleModal();
+        loadUsers();
     } catch (err) {
         showToast(t('common.error'), 'error');
     }

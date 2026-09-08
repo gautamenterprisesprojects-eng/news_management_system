@@ -6,7 +6,7 @@ const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
 const { initDatabase } = require('./db/init');
-const { uploadsDir, avatarsDir, resolveUpload } = require('./storage');
+const { uploadsDir, avatarsDir, pdfsDir, resolveUpload } = require('./storage');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -52,7 +52,10 @@ if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 fs.mkdirSync(avatarsDir, { recursive: true });
+fs.mkdirSync(pdfsDir, { recursive: true });
+
 app.use('/uploads/avatars', express.static(avatarsDir));
+app.use('/uploads/pdfs', express.static(pdfsDir));
 app.use('/uploads', express.static(uploadsDir));
 app.get('/api/health', (req, res) => {
     try {
@@ -71,23 +74,47 @@ const authRoutes = require('./routes/auth');
 const editorRoutes = require('./routes/editor');
 const operatorRoutes = require('./routes/operator');
 const reporterRoutes = require('./routes/reporter');
+const subEditorRoutes = require('./routes/subEditor');
+const advertisementRoutes = require('./routes/advertisement');
 const profileRoutes = require('./routes/profile');
 const publicRoutes = require('./routes/public');
 const externalNewsRoutes = require('./routes/externalNews');
 const pushRoutes = require('./routes/push');
+const webhookRoutes = require('./routes/webhook');
 
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/editor', editorRoutes);
 app.use('/api/operator', operatorRoutes);
 app.use('/api/reporter', reporterRoutes);
+app.use('/api/sub-editor', subEditorRoutes);
+app.use('/api/advertisements', advertisementRoutes);
 app.use('/api/transliterate', require('./routes/transliterate'));
 app.use('/api/profile', profileRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/external-news', externalNewsRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/webhook', webhookRoutes);
 
-// Background cron job: every hour, delete news older than 48 hours
+function deleteUploadedFile(fileUrl) {
+    if (!fileUrl) return;
+    try {
+        let fullPath;
+        if (fileUrl.startsWith('/uploads/pdfs/')) {
+            const target = path.resolve(pdfsDir, path.basename(fileUrl));
+            if (!target.startsWith(pdfsDir + path.sep)) throw new Error('Invalid PDF path');
+            fullPath = target;
+        } else {
+            fullPath = resolveUpload(fileUrl);
+        }
+
+        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+    } catch (e) {
+        console.error('Error deleting uploaded file:', e.message);
+    }
+}
+
+// Background cron job: every hour, delete news, PDFs, and ads older than 48 hours
 if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
     try {
         const { getDb, queryAll, queryRun } = require('./db/init');
@@ -99,10 +126,7 @@ if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
             const imagePaths = new Set(queryAll('SELECT image_path FROM news_images WHERE news_id = ?', [article.id]).map(row => row.image_path));
             if (article.image_path) imagePaths.add(article.image_path);
             for (const imagePath of imagePaths) {
-                const fullPath = resolveUpload(imagePath);
-                if (fs.existsSync(fullPath)) {
-                    try { fs.unlinkSync(fullPath); } catch (e) { console.error('Error deleting image:', e); }
-                }
+                deleteUploadedFile(imagePath);
             }
             // Delete from database
             getDb().transaction(() => {
@@ -113,6 +137,24 @@ if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
         }
         if (oldNews.length > 0) {
             console.log(`Cleaned up ${oldNews.length} old news records.`);
+        }
+
+        const oldPdfs = queryAll("SELECT id, pdf_url FROM api_pdfs WHERE datetime(created_at) < datetime('now', 'localtime', '-48 hours')");
+        for (const pdf of oldPdfs) {
+            deleteUploadedFile(pdf.pdf_url);
+            queryRun('DELETE FROM api_pdfs WHERE id = ?', [pdf.id]);
+        }
+        if (oldPdfs.length > 0) {
+            console.log(`Cleaned up ${oldPdfs.length} old PDF records.`);
+        }
+
+        const oldAds = queryAll("SELECT id, file_path FROM advertisements WHERE datetime(created_at) < datetime('now', 'localtime', '-48 hours')");
+        for (const ad of oldAds) {
+            deleteUploadedFile(ad.file_path);
+            queryRun('DELETE FROM advertisements WHERE id = ?', [ad.id]);
+        }
+        if (oldAds.length > 0) {
+            console.log(`Cleaned up ${oldAds.length} old advertisement records.`);
         }
     } catch (e) {
         console.error('Error in cleanup job:', e);

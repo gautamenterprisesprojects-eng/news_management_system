@@ -21,8 +21,13 @@ router.get('/news', (req, res) => {
                    SUBSTR(COALESCE(n.body_rewritten, n.body), 1, 200) as body,
                    n.category, n.city,
                    COALESCE(n.selected_image_path, n.image_path) as image_path,
-                   n.forwarded_at, n.external_hindi_url, n.external_english_url
+                   n.forwarded_at, n.external_hindi_url, n.external_english_url,
+                   se.full_name as sub_editor_name,
+                   se.name_hi as sub_editor_name_hi,
+                   se.post as sub_editor_post,
+                   COALESCE(se.district, se.city) as sub_editor_district
             FROM news n
+            LEFT JOIN users se ON se.id = n.sub_editor_id
             WHERE n.status = 'forwarded'
             ORDER BY n.forwarded_at DESC
         `);
@@ -84,9 +89,14 @@ router.get('/news/:id', (req, res) => {
                    COALESCE(n.selected_image_path, n.image_path) as image_path,
                    n.selected_image_path,
                    n.ai_provider, n.forwarded_at, n.external_hindi_url, n.external_english_url,
+                   se.full_name as sub_editor_name,
+                   se.name_hi as sub_editor_name_hi,
+                   se.post as sub_editor_post,
+                   COALESCE(se.district, se.city) as sub_editor_district,
                    u.full_name as reporter_name
             FROM news n
             JOIN users u ON n.reporter_id = u.id
+            LEFT JOIN users se ON se.id = n.sub_editor_id
             WHERE n.id = ? AND n.status = 'forwarded'
         `, [req.params.id]);
 

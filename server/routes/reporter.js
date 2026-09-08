@@ -33,6 +33,33 @@ function absoluteUrl(req, assetPath) {
     return new URL(assetPath, baseUrl).href;
 }
 
+function normalizePlace(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function findAssignedSubEditor(reporterId, newsCity) {
+    const reporter = queryGet('SELECT assigned_sub_editor_id, city FROM users WHERE id = ?', [reporterId]);
+    if (reporter?.assigned_sub_editor_id) {
+        const assigned = queryGet(
+            "SELECT id FROM users WHERE id = ? AND role = 'sub_editor' AND status = 'active'",
+            [reporter.assigned_sub_editor_id]
+        );
+        if (assigned) return assigned;
+    }
+
+    const place = normalizePlace(newsCity || reporter?.city);
+    if (!place) return null;
+
+    return queryGet(`
+        SELECT id FROM users
+        WHERE role = 'sub_editor'
+          AND status = 'active'
+          AND LOWER(TRIM(COALESCE(NULLIF(district, ''), city, ''))) = ?
+        ORDER BY id ASC
+        LIMIT 1
+    `, [place]);
+}
+
 // Multer config for image uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -88,9 +115,14 @@ router.post('/news', upload.array('images', 10), async (req, res) => {
         const firstImage = req.files && req.files.length > 0 ? req.files[0] : null;
         const imagePath = firstImage ? `/uploads/${firstImage.filename}` : null;
 
+        const assignedSubEditor = findAssignedSubEditor(req.user.id, city);
+        const subEditorStatus = assignedSubEditor ? 'pending' : 'direct';
+
         const result = queryRun(
-            'INSERT INTO news (headline, body, image_path, selected_image_path, category, tags, city, reporter_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [headline, body, imagePath, imagePath, category, tags || null, city || null, req.user.id]
+            `INSERT INTO news
+             (headline, body, image_path, selected_image_path, category, tags, city, reporter_id, sub_editor_id, sub_editor_status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [headline, body, imagePath, imagePath, category, tags || null, city || null, req.user.id, assignedSubEditor?.id || null, subEditorStatus]
         );
 
         const newsId = result.lastInsertRowid;
@@ -111,14 +143,16 @@ router.post('/news', upload.array('images', 10), async (req, res) => {
         const submittedAt = formatHindiNotificationTime();
         const preview = body.length > 90 ? `${body.slice(0, 90)}...` : body;
 
-        sendPushToEditors({
-            title: 'नई खबर आई',
-            body: `शीर्षक: ${headline}\nरिपोर्टर: ${reporterName}\nसमय: ${submittedAt}\nझलक: ${preview}`,
-            url: '/#/editor',
-            image: absoluteUrl(req, imagePath),
-            newsId,
-            tag: `news-${newsId}`
-        }).catch(err => console.error('Editor push notification error:', err));
+        if (!assignedSubEditor) {
+            sendPushToEditors({
+                title: 'नई खबर आई',
+                body: `शीर्षक: ${headline}\nरिपोर्टर: ${reporterName}\nसमय: ${submittedAt}\nझलक: ${preview}`,
+                url: '/#/editor',
+                image: absoluteUrl(req, imagePath),
+                newsId,
+                tag: `news-${newsId}`
+            }).catch(err => console.error('Editor push notification error:', err));
+        }
 
         res.json({ id: newsId, message: 'News submitted successfully.' });
     } catch (err) {

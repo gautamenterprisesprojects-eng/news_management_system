@@ -94,9 +94,15 @@ function switchTab(tabId) {
         else if (tabId === 'my-news') renderReporterMyNewsTab();
         else if (tabId === 'approved') renderReporterApprovedTab();
         else if (tabId === 'rejected') renderReporterRejectedTab();
+        else if (tabId === 'pdfs') renderReporterPdfsTab();
     } else if (hash.startsWith('#/editor')) {
         editorTab = tabId;
         switchEditorPane(tabId);
+    } else if (hash.startsWith('#/sub-editor')) {
+        subEditorTab = tabId;
+        if (typeof renderSubEditorTab === 'function') renderSubEditorTab(tabId);
+    } else if (hash.startsWith('#/ad-manager')) {
+        if (typeof switchAdManagerPane === 'function') switchAdManagerPane(tabId);
     } else if (hash.startsWith('#/admin')) {
         adminTab = tabId;
         if (tabId === 'dashboard') renderAdminDashboard();
@@ -112,6 +118,8 @@ const routes = {
     '#/login': renderLogin,
     '#/reporter': renderReporter,
     '#/editor': renderEditor,
+    '#/sub-editor': renderSubEditor,
+    '#/ad-manager': renderAdManager,
     '#/operator': renderOperator,
     '#/admin': renderAdmin,
     '#/profile': renderProfile
@@ -131,10 +139,12 @@ function router() {
         const user = getCurrentUser();
         if (user) {
             const roleRoutes = {
-                admin: '#/admin',
-                reporter: '#/reporter',
-                editor: '#/editor',
-                operator: '#/operator'
+                'admin': '#/admin',
+                'editor': '#/editor',
+                'reporter': '#/reporter',
+                'operator': '#/operator',
+                'sub_editor': '#/sub-editor',
+                'ad_manager': '#/ad-manager'
             };
             window.location.hash = roleRoutes[user.role] || '#/login';
             return;
@@ -147,6 +157,8 @@ function router() {
         const allowedRoutes = {
             admin: ['#/admin', '#/profile'],
             editor: ['#/editor', '#/profile'],
+            sub_editor: ['#/sub-editor', '#/profile'],
+            ad_manager: ['#/ad-manager', '#/profile'],
             operator: ['#/operator', '#/profile'],
             reporter: ['#/reporter', '#/profile']
         };
