@@ -147,6 +147,10 @@ async function initDatabase() {
             target_user_id INTEGER NOT NULL,
             pdf_url TEXT NOT NULL,
             filename TEXT,
+            job_id TEXT,
+            bundle_id TEXT,
+            edition_id TEXT,
+            status TEXT,
             created_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
     `);
@@ -185,7 +189,13 @@ async function initDatabase() {
             sub_editor_reject_reason: 'TEXT',
             newspaper_sent_at: 'TEXT'
         },
-        news_images: { sort_order: 'INTEGER DEFAULT 0' }
+        news_images: { sort_order: 'INTEGER DEFAULT 0' },
+        api_pdfs: {
+            job_id: 'TEXT',
+            bundle_id: 'TEXT',
+            edition_id: 'TEXT',
+            status: 'TEXT'
+        }
     };
     db.transaction(() => {
         for (const [table, columns] of Object.entries(additions)) {

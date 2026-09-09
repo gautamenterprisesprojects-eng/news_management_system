@@ -5,6 +5,7 @@
 let editorTab = 'raw';
 let _rawNewsData = [];
 let _rawNewsReporterFilter = '';
+let _rawNewsSubEditorFilter = '';
 let _rawPage = 1;
 let _hasMoreRaw = true;
 let _publishedNewsData = [];
@@ -18,6 +19,11 @@ let _processedNewsLoadSeq = 0;
 function onRawReporterFilterChange(val) {
     _rawNewsReporterFilter = val;
     renderRawNewsCards();
+}
+
+function onRawSubEditorFilterChange(val) {
+    _rawNewsSubEditorFilter = val;
+    loadRawNews();
 }
 
 function renderEditor() {
@@ -185,7 +191,9 @@ async function loadRawNews(append = false) {
     const container = document.getElementById('rawNewsList');
     const loadSeq = ++_rawNewsLoadSeq;
     try {
-        const data = await api(`/editor/news/raw?page=${_rawPage}`);
+        const params = new URLSearchParams({ page: String(_rawPage) });
+        if (_rawNewsSubEditorFilter) params.set('sub_editor_id', _rawNewsSubEditorFilter);
+        const data = await api(`/editor/news/raw?${params.toString()}`);
         if (loadSeq !== _rawNewsLoadSeq) return;
         const news = data.news || [];
         
@@ -209,13 +217,18 @@ async function loadRawNews(append = false) {
             if (el) el.textContent = pendingRawCount + (_hasMoreRaw ? '+' : '');
         });
 
-        // Populate reporter filter from all reporters
+        // Populate raw-news filters from active users
         let allReporters = [];
+        let allSubEditors = [];
         try {
-            const repData = await api('/editor/reporters');
-            if (!repData.error) allReporters = repData.reporters;
+            const [repData, subEditorData] = await Promise.all([
+                api('/editor/reporters'),
+                api('/editor/sub-editors')
+            ]);
+            if (!repData.error) allReporters = repData.reporters || [];
+            if (!subEditorData.error) allSubEditors = subEditorData.subEditors || [];
         } catch (e) {
-            console.error('Failed to fetch reporters', e);
+            console.error('Failed to fetch raw news filters', e);
         }
         
         const filterContainer = document.getElementById('rawNewsFilterContainer');
@@ -224,6 +237,14 @@ async function loadRawNews(append = false) {
                 <select class="form-input form-select" style="max-width: 150px; padding: 4px 8px; font-size: 0.85rem;" onchange="onRawReporterFilterChange(this.value)">
                     <option value="" data-i18n="common.all_reporters">${t('common.all_reporters') || 'सभी रिपोर्टर'}</option>
                     ${allReporters.map(r => `<option value="${escapeHtml(r.name)}" ${r.name === _rawNewsReporterFilter ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}
+                </select>
+                <select class="form-input form-select" style="max-width: 170px; padding: 4px 8px; font-size: 0.85rem; margin-left: 8px;" onchange="onRawSubEditorFilterChange(this.value)">
+                    <option value="">सब-एडिटर चुनें</option>
+                    <option value="direct" ${_rawNewsSubEditorFilter === 'direct' ? 'selected' : ''}>सीधी खबरें</option>
+                    ${allSubEditors.map(se => {
+                        const name = se.name_hi || se.full_name || se.name_en || 'Sub-Editor';
+                        return `<option value="${se.id}" ${String(se.id) === String(_rawNewsSubEditorFilter) ? 'selected' : ''}>${escapeHtml(name)}</option>`;
+                    }).join('')}
                 </select>
             `;
         }
@@ -1962,5 +1983,178 @@ async function uploadManualPdf(input) {
         btnLabel.innerHTML = originalHtml;
         btnLabel.style.pointerEvents = 'auto';
         input.value = ''; // Reset input
+    }
+}
+
+
+// ==========================================
+// EDITOR ADS SCREEN
+// ==========================================
+
+function renderEditorAdsScreen() {
+    const app = document.getElementById('app');
+    app.innerHTML = `
+        ${renderTopBar('editor.title', 'dollar-sign')}
+        <main class="page-content" style="padding-bottom: 70px;">
+            <div class="split-pane-header" style="padding: 12px 16px; border-bottom: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button class="btn btn-secondary btn-sm" onclick="switchEditorPane('more')">← वापस</button>
+                    <h3 style="margin: 0;" data-i18n="editor.ads_tab">${t('editor.ads_tab') || 'Advertisement Panel'}</h3>
+                </div>
+            </div>
+            
+            <div style="padding: 16px;">
+                <div style="display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 4px;">
+                    <button class="btn btn-primary btn-sm" id="btnPendingAds" onclick="loadEditorPendingAds()">पेंडिंग विज्ञापन</button>
+                    <button class="btn btn-secondary btn-sm" id="btnApprovedAds" onclick="loadEditorApprovedAds()">स्वीकृत विज्ञापन</button>
+                </div>
+                
+                <div id="editorAdsList" style="display: flex; flex-direction: column; gap: 12px;">
+                    <div class="loading-spinner"></div>
+                </div>
+            </div>
+        </main>
+        ${renderBottomNav('editor', 'more')}
+    `;
+    applyLanguage();
+    loadEditorPendingAds();
+}
+
+let currentEditorAdStatus = 'pending';
+
+async function loadEditorPendingAds() {
+    currentEditorAdStatus = 'pending';
+    const btnP = document.getElementById('btnPendingAds');
+    const btnA = document.getElementById('btnApprovedAds');
+    if(btnP) btnP.className = 'btn btn-primary btn-sm';
+    if(btnA) btnA.className = 'btn btn-secondary btn-sm';
+    
+    const container = document.getElementById('editorAdsList');
+    if(!container) return;
+    container.innerHTML = '<div class="loading-spinner" style="margin:40px auto;"></div>';
+    
+    try {
+        const data = await api('/advertisements/pending');
+        const ads = data.ads || [];
+        
+        if (ads.length === 0) {
+            container.innerHTML = `<div class="empty-state"><div class="empty-text">कोई पेंडिंग विज्ञापन नहीं है</div></div>`;
+            return;
+        }
+        
+        container.innerHTML = ads.map(a => renderEditorAdCard(a, true)).join('');
+    } catch(err) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
+    }
+}
+
+async function loadEditorApprovedAds() {
+    currentEditorAdStatus = 'approved';
+    const btnP = document.getElementById('btnPendingAds');
+    const btnA = document.getElementById('btnApprovedAds');
+    if(btnP) btnP.className = 'btn btn-secondary btn-sm';
+    if(btnA) btnA.className = 'btn btn-primary btn-sm';
+    
+    const container = document.getElementById('editorAdsList');
+    if(!container) return;
+    container.innerHTML = '<div class="loading-spinner" style="margin:40px auto;"></div>';
+    
+    try {
+        const data = await api('/advertisements/approved');
+        const ads = data.ads || [];
+        
+        if (ads.length === 0) {
+            container.innerHTML = `<div class="empty-state"><div class="empty-text">कोई स्वीकृत विज्ञापन नहीं है</div></div>`;
+            return;
+        }
+        
+        container.innerHTML = ads.map(a => renderEditorAdCard(a, false)).join('');
+    } catch(err) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
+    }
+}
+
+function renderEditorAdCard(a, isPending) {
+    const isImage = a.file_type && a.file_type.startsWith('image/');
+    const previewHtml = isImage 
+        ? `<a href="${a.file_path}" target="_blank"><img src="${a.file_path}" style="width:100%; height:150px; object-fit:cover; border-radius:8px;"></a>`
+        : `<a href="${a.file_path}" target="_blank" style="text-decoration:none;"><div style="background:var(--bg-secondary); width:100%; height:150px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-direction:column; color:var(--accent-blue);">
+            ${icon('file-text', 48)}
+            <span style="margin-top:8px; font-weight:500;">View Document</span>
+           </div></a>`;
+
+    const btnHtml = isPending ? `
+        <div style="display:flex; gap:8px; margin-top:12px;">
+            <button class="btn btn-primary" style="flex:1;" onclick="approveEditorAd(${a.id})">${icon('check', 16)} स्वीकृत करें</button>
+            <button class="btn btn-secondary" style="flex:1; background:var(--danger-color); color:#fff; border:none;" onclick="rejectEditorAd(${a.id})">${icon('x', 16)} अस्वीकृत करें</button>
+        </div>
+    ` : `
+        <div style="display:flex; gap:8px; margin-top:12px;">
+            <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="sendEditorAdToOperator(${a.id})">${icon('send', 16)} ऑपरेटर को भेजें</button>
+        </div>
+    `;
+
+    return `
+        <div class="card" style="padding:16px;">
+            ${previewHtml}
+            <div style="margin-top:12px;">
+                <div style="font-weight:600; font-size:1.1rem; color:var(--text-primary);">${escapeHtml(a.ad_type || 'Unknown Type')}</div>
+                <div style="font-size:0.9rem; color:var(--text-secondary); margin-top:4px;">
+                    Sub-Editor: ${escapeHtml(a.sub_editor_name || 'Unknown')} (${escapeHtml(a.sub_editor_district || 'No District')})
+                </div>
+                <div style="font-size:0.9rem; color:var(--text-secondary); margin-top:2px;">
+                    Size: ${escapeHtml(a.size || '-')} • Price: ₹${a.price || 0}
+                </div>
+                ${a.note_sub_editor ? `<div style="font-size:0.85rem; color:var(--text-secondary); margin-top:8px; padding:8px; background:var(--bg-secondary); border-radius:4px;">${escapeHtml(a.note_sub_editor)}</div>` : ''}
+                ${!isPending && a.status === 'sent_to_operator' ? `<div style="font-size:0.85rem; color:var(--accent-blue); margin-top:8px; font-weight:500;">ऑपरेटर को भेजा जा चुका है</div>` : ''}
+                
+                ${a.status !== 'sent_to_operator' ? btnHtml : ''}
+            </div>
+        </div>
+    `;
+}
+
+async function approveEditorAd(id) {
+    if(!confirm('क्या आप इस विज्ञापन को स्वीकृत करना चाहते हैं?')) return;
+    try {
+        const res = await api('/advertisements/' + id + '/approve', {
+            method: 'POST',
+            body: JSON.stringify({ note_editor: '' })
+        });
+        showToast('विज्ञापन स्वीकृत किया गया', 'success');
+        if (currentEditorAdStatus === 'pending') loadEditorPendingAds();
+        else loadEditorApprovedAds();
+    } catch(err) {
+        showToast(err.message || 'Error', 'error');
+    }
+}
+
+async function rejectEditorAd(id) {
+    const reason = prompt('अस्वीकृत करने का कारण:');
+    if(reason === null) return;
+    try {
+        const res = await api('/advertisements/' + id + '/reject', {
+            method: 'POST',
+            body: JSON.stringify({ reason })
+        });
+        showToast('विज्ञापन अस्वीकृत किया गया', 'success');
+        if (currentEditorAdStatus === 'pending') loadEditorPendingAds();
+        else loadEditorApprovedAds();
+    } catch(err) {
+        showToast(err.message || 'Error', 'error');
+    }
+}
+
+async function sendEditorAdToOperator(id) {
+    if(!confirm('क्या आप इसे ऑपरेटर को भेजना चाहते हैं?')) return;
+    try {
+        const res = await api('/advertisements/' + id + '/send-to-operator', {
+            method: 'POST'
+        });
+        showToast('ऑपरेटर को भेजा गया', 'success');
+        if (currentEditorAdStatus === 'pending') loadEditorPendingAds();
+        else loadEditorApprovedAds();
+    } catch(err) {
+        showToast(err.message || 'Error', 'error');
     }
 }

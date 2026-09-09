@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { getBaseUrl } = require('./externalNews');
 
 function detectLanguage(text) {
@@ -20,12 +21,51 @@ async function readResponse(response) {
     }
 }
 
+/**
+ * Generate a unique job ID for tracking this bundle through Page Maker.
+ */
+function generateJobId() {
+    return `JOB-${Date.now()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+}
+
+/**
+ * Generate a unique bundle ID for this specific article bundle.
+ */
+function generateBundleId() {
+    return `BUNDLE-${Date.now()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+}
+
+/**
+ * Generate an edition ID based on today's local date (EDITION-YYYY-MM-DD).
+ */
+function generateEditionId() {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    return `EDITION-${yyyy}-${mm}-${dd}`;
+}
+
 function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }) {
     const sentAt = new Date().toISOString();
 
+    // Unique identifiers so Page Maker can track and return the PDF
+    // against the correct job, bundle, and edition.
+    const jobId = generateJobId();
+    const bundleId = generateBundleId();
+    const editionId = generateEditionId();
+
     return {
-        source: 'NMS THE CLIFF NEWS',
+        source: 'NMS',
         sentAt,
+
+        // --- Tracking identifiers (required by Page Maker) ---
+        job_id: jobId,
+        bundle_id: bundleId,
+        edition_id: editionId,
+        target_user_id: targetUser.id,
+
+        // --- Target user info for page layout/masthead ---
         targetUser: {
             id: targetUser.id,
             role: targetUser.role,
@@ -37,6 +77,18 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }
             place: targetUser.district || targetUser.city || '',
             avatarUrl: toAbsoluteUrl(targetUser.avatar_path, baseUrl)
         },
+
+        // --- Callback: Page Maker posts generated PDF back here ---
+        callback: {
+            url: `${baseUrl}/api/webhook/newspaper-pdf`,
+            method: 'POST',
+            targetUserId: targetUser.id,
+            fileField: 'pdf',
+            targetField: 'target_user_id',
+            authHeader: process.env.NEWSPAPER_GENERATOR_WEBHOOK_KEY ? 'x-webhook-key' : null
+        },
+
+        // --- Legacy pdfCallback kept for backward-compatibility ---
         pdfCallback: {
             url: `${baseUrl}/api/webhook/newspaper-pdf`,
             method: 'POST',
@@ -45,6 +97,7 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }
             targetField: 'target_user_id',
             authHeader: process.env.NEWSPAPER_GENERATOR_WEBHOOK_KEY ? 'x-webhook-key' : null
         },
+
         count: articles.length,
         articles: articles.map(article => {
             const title = article.headline_rewritten || article.headline || '';
