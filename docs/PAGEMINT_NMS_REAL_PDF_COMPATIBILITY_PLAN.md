@@ -102,7 +102,9 @@ Goal:
 - Use pagemint_user_id/pagemint_target_id cliffdemo3 only for PageMint settings/layout/category selection.
 - Keep numeric target_user_id for the NMS callback.
 - Send the real generated PDF back to NMS at payload.callback.url or payload.pdfCallback.url as multipart/form-data.
-- Store temporary generated PDFs and NMS bundle artifacts for about 30 hours, then clean only those NMS integration files.
+- Store real generated PDFs for about 30 hours.
+- After a bundle has been used to generate/send the PDF, clear that used bundle JSON after about 1 hour.
+- Clean only those NMS integration files.
 - Do not change unrelated PageMint publishers, normal editor UI, wallet flow, portal login, or production domains.
 
 After implementation, test with an NMS bundle and verify the PDF appears in NMS for the assigned numeric user id.
@@ -183,8 +185,11 @@ export async function postNmsPdfCallback(payload: NmsBundlePayload, pdfPath: str
 Suggested retention helper:
 
 ```ts
-const retentionHours = Number(process.env.NMS_GENERATED_PDF_RETENTION_HOURS || 30);
-const cutoff = Date.now() - retentionHours * 60 * 60 * 1000;
+const pdfRetentionHours = Number(process.env.NMS_GENERATED_PDF_RETENTION_HOURS || 30);
+const usedBundleRetentionHours = Number(process.env.NMS_USED_BUNDLE_RETENTION_HOURS || 1);
+
+const pdfCutoff = Date.now() - pdfRetentionHours * 60 * 60 * 1000;
+const usedBundleCutoff = Date.now() - usedBundleRetentionHours * 60 * 60 * 1000;
 ```
 
 Delete only files inside:
@@ -239,7 +244,10 @@ Use `payload.callback` first. Fall back to `payload.pdfCallback` for backward co
 For the Cliff News/NMS integration only:
 
 - Keep generated PageMint PDFs for about 30 hours.
-- Clean PageMint NMS bundle JSON and generated PDF artifacts after 30 hours.
+- After a bundle has successfully generated a PDF and the callback has been attempted, mark that bundle as used.
+- Clean used PageMint NMS bundle JSON files after about 1 hour.
+- Keep unused/failed bundles for debugging until their matching retry/error policy is decided, but do not let them grow forever.
+- Clean generated PageMint PDF artifacts after about 30 hours.
 - Do not clean unrelated PageMint user data.
 
 Suggested env/config:
@@ -247,6 +255,7 @@ Suggested env/config:
 ```env
 NMS_BUNDLE_DIR=/app/data/nms-bundles
 NMS_GENERATED_PDF_DIR=/app/data/nms-generated-pdfs
+NMS_USED_BUNDLE_RETENTION_HOURS=1
 NMS_GENERATED_PDF_RETENTION_HOURS=30
 ```
 
@@ -261,10 +270,23 @@ volumes:
 Run cleanup on each request or with a small interval/job:
 
 ```txt
-delete files older than NMS_GENERATED_PDF_RETENTION_HOURS from:
+delete used bundle files older than NMS_USED_BUNDLE_RETENTION_HOURS from:
   /app/data/nms-bundles
+
+delete generated PDF files older than NMS_GENERATED_PDF_RETENTION_HOURS from:
   /app/data/nms-generated-pdfs
 ```
+
+Implementation note:
+
+When PDF generation completes, move the original payload and summary files into a used subfolder or write a sidecar marker:
+
+```txt
+/app/data/nms-bundles/used/<bundle-file>.json
+/app/data/nms-bundles/used/<bundle-file>.summary.json
+```
+
+Then the 1-hour cleanup can delete only files in `used/`. Keep `latest.json` and `latest.summary.json` pointing to the latest received bundle for quick verification, but allow cleanup to remove or refresh them if they point to a used bundle older than 1 hour.
 
 ## Guardrails
 
@@ -287,4 +309,5 @@ GET /api/editor/api-targets/<numeric-user-id>/pdfs
 ```
 
 6. Confirm target user sees it in their own PDF tab.
-7. Confirm old NMS/PageMint generated PDFs are removed after about 30 hours.
+7. Confirm used PageMint bundle JSON files are removed after about 1 hour.
+8. Confirm old NMS/PageMint generated PDFs are removed after about 30 hours.
