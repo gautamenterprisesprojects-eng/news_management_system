@@ -114,13 +114,16 @@ function deleteUploadedFile(fileUrl) {
     }
 }
 
-// Background cron job: every hour, delete news, PDFs, and ads older than 48 hours
+const CONTENT_RETENTION_HOURS = 48;
+const API_PDF_RETENTION_HOURS = 30;
+
+// Background cron job: every hour, delete old NMS content and generated API PDFs.
 if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
     try {
         const { getDb, queryAll, queryRun } = require('./db/init');
-        console.log('Running 48h data cleanup job...');
+        console.log(`Running cleanup job: content>${CONTENT_RETENTION_HOURS}h, api_pdfs>${API_PDF_RETENTION_HOURS}h...`);
         // Find news older than 48 hours
-        const oldNews = queryAll("SELECT id, image_path FROM news WHERE datetime(created_at) < datetime('now', 'localtime', '-48 hours')");
+        const oldNews = queryAll("SELECT id, image_path FROM news WHERE datetime(created_at) < datetime('now', 'localtime', ?)", [`-${CONTENT_RETENTION_HOURS} hours`]);
         for (const article of oldNews) {
             // Delete associated image file
             const imagePaths = new Set(queryAll('SELECT image_path FROM news_images WHERE news_id = ?', [article.id]).map(row => row.image_path));
@@ -139,7 +142,7 @@ if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
             console.log(`Cleaned up ${oldNews.length} old news records.`);
         }
 
-        const oldPdfs = queryAll("SELECT id, pdf_url FROM api_pdfs WHERE datetime(created_at) < datetime('now', 'localtime', '-48 hours')");
+        const oldPdfs = queryAll("SELECT id, pdf_url FROM api_pdfs WHERE datetime(created_at) < datetime('now', 'localtime', ?)", [`-${API_PDF_RETENTION_HOURS} hours`]);
         for (const pdf of oldPdfs) {
             deleteUploadedFile(pdf.pdf_url);
             queryRun('DELETE FROM api_pdfs WHERE id = ?', [pdf.id]);
@@ -148,7 +151,7 @@ if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
             console.log(`Cleaned up ${oldPdfs.length} old PDF records.`);
         }
 
-        const oldAds = queryAll("SELECT id, file_path FROM advertisements WHERE datetime(created_at) < datetime('now', 'localtime', '-48 hours')");
+        const oldAds = queryAll("SELECT id, file_path FROM advertisements WHERE datetime(created_at) < datetime('now', 'localtime', ?)", [`-${CONTENT_RETENTION_HOURS} hours`]);
         for (const ad of oldAds) {
             deleteUploadedFile(ad.file_path);
             queryRun('DELETE FROM advertisements WHERE id = ?', [ad.id]);

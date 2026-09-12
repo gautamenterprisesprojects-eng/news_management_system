@@ -28,7 +28,7 @@ The backend is isolated from the existing projects as much as possible on the sh
 - Host binding: `127.0.0.1:3010`
 - Public API hostname: `nms-api.thecliffnews.in`
 - Nginx config: `/etc/nginx/sites-available/nms-api.thecliffnews.in`
-- Auto cleanup: enabled only for NMS, deletes NMS news/images older than 48 hours
+- Auto cleanup: enabled only for NMS, deletes NMS news/images/ads older than 48 hours and generated API PDFs older than 30 hours
 
 The other projects must not be stopped, recreated, renamed, or edited during NMS deployment.
 
@@ -242,7 +242,7 @@ NMS cleanup is enabled with:
 ENABLE_NEWS_CLEANUP=true
 ```
 
-The cleanup job runs hourly and removes NMS news/images older than 48 hours. It does not clean files from the other projects.
+The cleanup job runs hourly and removes NMS news/images/ads older than 48 hours. Generated API newspaper PDFs in `api_pdfs` are removed after about 30-31 hours. It does not clean files from the other projects.
 
 Check the setting:
 

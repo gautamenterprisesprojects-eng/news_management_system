@@ -178,10 +178,10 @@ After NMS receives the PDF:
 
 ## 4. Retention
 
-PDFs are cleaned automatically after about `48-49 hours` when:
+Generated API PDFs are cleaned automatically after about `30-31 hours` when:
 
 ```env
 ENABLE_NEWS_CLEANUP=true
 ```
 
-The cleanup job runs every 1 hour.
+The cleanup job runs every 1 hour. NMS news/images/ads keep their separate 48-hour retention.
