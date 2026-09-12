@@ -84,6 +84,118 @@ Current live server paths to inspect before coding:
 
 The current PDF export path is browser-driven in `EditorCanvas.tsx`. For NMS automation, PageMint needs a server/headless equivalent that can build the document and produce PDF bytes without a person clicking the editor download button.
 
+## Prompt for the laptop that has PageMint source
+
+Use this prompt in the PageMint repo:
+
+```txt
+I made live-server NMS compatibility notes on the Hostinger VPS at:
+
+/opt/newspaper-generator/docs/PAGEMINT_NMS_REAL_PDF_COMPATIBILITY_PLAN.md
+/opt/newspaper-generator/docs/NMS_BUNDLE_RECEIVER_SERVER_CHANGE.md
+
+Please read those docs first, then update only the PageMint generator source needed for Cliff News demo/NMS API-enabled users.
+
+Goal:
+- PageMint already receives NMS bundles at POST /api/nms-bundle.
+- Add server-side/headless PDF generation from the NMS bundle.
+- Use pagemint_user_id/pagemint_target_id cliffdemo3 only for PageMint settings/layout/category selection.
+- Keep numeric target_user_id for the NMS callback.
+- Send the real generated PDF back to NMS at payload.callback.url or payload.pdfCallback.url as multipart/form-data.
+- Store temporary generated PDFs and NMS bundle artifacts for about 30 hours, then clean only those NMS integration files.
+- Do not change unrelated PageMint publishers, normal editor UI, wallet flow, portal login, or production domains.
+
+After implementation, test with an NMS bundle and verify the PDF appears in NMS for the assigned numeric user id.
+```
+
+## Suggested code structure
+
+Keep the existing route small. Move generation/callback work to helper modules so the route stays easy to review.
+
+Suggested new files:
+
+```txt
+src/lib/nms/nmsBundleTypes.ts
+src/lib/nms/nmsBundleStorage.ts
+src/lib/nms/nmsPdfJob.ts
+src/lib/nms/nmsPdfCallback.ts
+src/lib/nms/nmsRetention.ts
+```
+
+Suggested `route.ts` shape:
+
+```ts
+export async function POST(request: NextRequest) {
+  const authError = assertAuthorized(request);
+  if (authError) return authError;
+
+  const payload = await parseAndValidateNmsBundle(request);
+  const stored = await storeNmsBundle(payload);
+  cleanupOldNmsArtifacts().catch(console.error);
+
+  if (isAllowedNmsPageMintTarget(payload)) {
+    queueMicrotask(async () => {
+      try {
+        const result = await generateNmsPdfJob(payload);
+        await postNmsPdfCallback(payload, result.pdfPath);
+      } catch (error) {
+        console.error("[NMS PDF job] failed", error);
+      }
+    });
+  }
+
+  return NextResponse.json({
+    success: true,
+    received: true,
+    queuedPdf: isAllowedNmsPageMintTarget(payload),
+    stored,
+  });
+}
+```
+
+Use a background queue if the host can support it. If not, `queueMicrotask` is acceptable for the first Cliff News demo as long as errors are logged and the receiver still returns quickly.
+
+Suggested callback helper:
+
+```ts
+export async function postNmsPdfCallback(payload: NmsBundlePayload, pdfPath: string) {
+  const callback = payload.callback || payload.pdfCallback;
+  if (!callback?.url) throw new Error("NMS callback URL missing.");
+
+  const form = new FormData();
+  form.set("target_user_id", String(payload.target_user_id));
+  if (payload.job_id) form.set("job_id", String(payload.job_id));
+  if (payload.bundle_id) form.set("bundle_id", String(payload.bundle_id));
+  if (payload.edition_id) form.set("edition_id", String(payload.edition_id));
+  form.set("status", "generated");
+  form.set("pdf", new Blob([await readFile(pdfPath)], { type: "application/pdf" }), basename(pdfPath));
+
+  const headers: HeadersInit = {};
+  const authHeader = callback.authHeader;
+  const webhookKey = process.env.NMS_WEBHOOK_KEY || process.env.NEWSPAPER_GENERATOR_WEBHOOK_KEY || "";
+  if (authHeader && webhookKey) headers[authHeader] = webhookKey;
+
+  const response = await fetch(String(callback.url), { method: "POST", headers, body: form });
+  if (!response.ok) throw new Error(`NMS PDF callback failed with ${response.status}`);
+}
+```
+
+Suggested retention helper:
+
+```ts
+const retentionHours = Number(process.env.NMS_GENERATED_PDF_RETENTION_HOURS || 30);
+const cutoff = Date.now() - retentionHours * 60 * 60 * 1000;
+```
+
+Delete only files inside:
+
+```txt
+NMS_BUNDLE_DIR
+NMS_GENERATED_PDF_DIR
+```
+
+Do not delete any other PageMint data directory.
+
 ## Article and page behavior
 
 When NMS sends 10-20 articles:
