@@ -46,6 +46,10 @@ function generateEditionId() {
     return `EDITION-${yyyy}-${mm}-${dd}`;
 }
 
+function getPageMintTargetId() {
+    return process.env.NEWSPAPER_GENERATOR_PAGEMINT_USER_ID || 'cliffdemo3';
+}
+
 function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }) {
     const sentAt = new Date().toISOString();
 
@@ -54,6 +58,7 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }
     const jobId = generateJobId();
     const bundleId = generateBundleId();
     const editionId = generateEditionId();
+    const pageMintTargetId = getPageMintTargetId();
 
     return {
         source: 'NMS',
@@ -64,10 +69,14 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }
         bundle_id: bundleId,
         edition_id: editionId,
         target_user_id: targetUser.id,
+        pagemint_user_id: pageMintTargetId,
+        pagemint_target_id: pageMintTargetId,
 
         // --- Target user info for page layout/masthead ---
         targetUser: {
             id: targetUser.id,
+            pagemintId: pageMintTargetId,
+            externalId: pageMintTargetId,
             role: targetUser.role,
             nameHi: targetUser.name_hi || targetUser.full_name || '',
             nameEn: targetUser.name_en || targetUser.full_name || '',
@@ -83,6 +92,7 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }
             url: `${baseUrl}/api/webhook/newspaper-pdf`,
             method: 'POST',
             targetUserId: targetUser.id,
+            pagemintTargetId: pageMintTargetId,
             fileField: 'pdf',
             targetField: 'target_user_id',
             authHeader: process.env.NEWSPAPER_GENERATOR_WEBHOOK_KEY ? 'x-webhook-key' : null
@@ -93,6 +103,7 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }
             url: `${baseUrl}/api/webhook/newspaper-pdf`,
             method: 'POST',
             targetUserId: targetUser.id,
+            pagemintTargetId: pageMintTargetId,
             fileField: 'pdf',
             targetField: 'target_user_id',
             authHeader: process.env.NEWSPAPER_GENERATOR_WEBHOOK_KEY ? 'x-webhook-key' : null

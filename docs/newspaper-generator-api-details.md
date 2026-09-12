@@ -7,8 +7,9 @@ This document describes how NMS sends selected processed news to the Newspaper G
 Set this environment variable in NMS:
 
 ```env
-NEWSPAPER_GENERATOR_URL=https://your-newspaper-generator.example.com/api/nms-bundle
-NEWSPAPER_GENERATOR_API_KEY=your-secret-key
+NEWSPAPER_GENERATOR_URL=https://generator.pagemint1.gautamenterprises.org/api/nms-bundle
+NEWSPAPER_GENERATOR_API_KEY=
+NEWSPAPER_GENERATOR_PAGEMINT_USER_ID=cliffdemo3
 ```
 
 When the Main Editor selects a Sub-editor or API-enabled Reporter and sends a bundle, NMS sends a `POST` request to `NEWSPAPER_GENERATOR_URL`.
@@ -20,14 +21,24 @@ Content-Type: application/json
 Authorization: Bearer your-secret-key
 ```
 
+`Authorization` is sent only when `NEWSPAPER_GENERATOR_API_KEY` is configured.
+
 Example payload:
 
 ```json
 {
   "source": "NMS THE CLIFF NEWS",
   "sentAt": "2026-09-09T10:30:00.000Z",
+  "job_id": "JOB-1788904947291-AB12CD34",
+  "bundle_id": "BUNDLE-1788904947291-EF56GH78",
+  "edition_id": "EDITION-2026-09-09",
+  "target_user_id": 12,
+  "pagemint_user_id": "cliffdemo3",
+  "pagemint_target_id": "cliffdemo3",
   "targetUser": {
     "id": 12,
+    "pagemintId": "cliffdemo3",
+    "externalId": "cliffdemo3",
     "role": "sub_editor",
     "nameHi": "राकेश सिंह",
     "nameEn": "Rakesh Singh",
@@ -41,6 +52,7 @@ Example payload:
     "url": "https://nms.example.com/api/webhook/newspaper-pdf",
     "method": "POST",
     "targetUserId": 12,
+    "pagemintTargetId": "cliffdemo3",
     "fileField": "pdf",
     "targetField": "target_user_id",
     "authHeader": "x-webhook-key"
@@ -109,6 +121,12 @@ Image order:
 
 Use `images[].order` ascending. The `coverImage` field is the selected cover image for that article.
 
+Important ID rule:
+
+NMS sends `pagemint_user_id`, `pagemint_target_id`, `targetUser.pagemintId`, and `targetUser.externalId` for PageMint routing. These values default to `cliffdemo3`.
+
+Do not replace numeric NMS IDs with `cliffdemo3`. `target_user_id`, `targetUser.id`, `callback.targetUserId`, and `pdfCallback.targetUserId` must remain the numeric NMS user ID so returned PDFs are stored under the correct NMS user.
+
 ## 2. Newspaper Generator Sends PDF Back To NMS
 
 After generating the PDF, the Newspaper Generator should call the callback URL from `pdfCallback.url`.
@@ -167,4 +185,3 @@ ENABLE_NEWS_CLEANUP=true
 ```
 
 The cleanup job runs every 1 hour.
-
