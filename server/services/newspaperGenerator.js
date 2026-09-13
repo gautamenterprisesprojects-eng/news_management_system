@@ -50,6 +50,234 @@ function getPageMintTargetId() {
     return process.env.NEWSPAPER_GENERATOR_PAGEMINT_USER_ID || 'cliffdemo3';
 }
 
+function safeString(value) {
+    return value == null ? '' : String(value).trim();
+}
+
+function toAbsoluteUrlOrNull(path, baseUrl) {
+    const value = safeString(path);
+    return value ? toAbsoluteUrl(value, baseUrl) : null;
+}
+
+function extractPageMintSubheadings(bodyRewritten) {
+    const lines = safeString(bodyRewritten).split(/\r?\n/);
+    const subheadings = [];
+    const labelPattern = /^(?:सबहेडिंग|subheading)\s*\d+\s*:\s*(.*)$/i;
+    const sectionPattern = /^(?:इमेज कैप्शन|हेडलाइन|image caption|headline)\s*:/i;
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const labelMatch = lines[index].trim().match(labelPattern);
+        if (!labelMatch) continue;
+
+        const valueLines = [];
+        if (labelMatch[1].trim()) valueLines.push(labelMatch[1].trim());
+        for (let next = index + 1; next < lines.length; next += 1) {
+            const line = lines[next].trim();
+            if (labelPattern.test(line) || sectionPattern.test(line)) break;
+            if (!line) break;
+            valueLines.push(line);
+        }
+
+        const value = valueLines.join(' ').replace(/\s+/g, ' ').trim();
+        if (value && !subheadings.includes(value)) subheadings.push(value);
+    }
+
+    return subheadings;
+}
+
+function extractPageMintLabeledValue(bodyRewritten, labelPattern) {
+    const lines = safeString(bodyRewritten).split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+        const match = lines[index].trim().match(labelPattern);
+        if (!match) continue;
+
+        const valueLines = [];
+        if (match[1].trim()) valueLines.push(match[1].trim());
+        for (let next = index + 1; next < lines.length; next += 1) {
+            const line = lines[next].trim();
+            if (!line) break;
+            valueLines.push(line);
+        }
+
+        return valueLines.join(' ').replace(/\s+/g, ' ').trim();
+    }
+
+    return '';
+}
+
+function getReporterValue(article, language, suffix) {
+    const languageSuffix = language === 'hi' ? `${suffix}_hi` : `${suffix}_en`;
+    return safeString(article[`reporter_${languageSuffix}`]) || safeString(article[`reporter_${suffix}`]);
+}
+
+function buildPageMintByline({ name, designation, place, language, photoUrl }) {
+    const organization = language === 'hi' ? 'द क्लिफ न्यूज़' : 'The Cliff News';
+    const values = [name];
+    if (designation) values.push(designation);
+    if (name || designation) {
+        if (![name, designation].some(value => value.toLowerCase().includes(organization.toLowerCase()))) {
+            values.push(organization);
+        }
+    }
+    if (place) values.push(place);
+    const text = values.filter(Boolean).join(', ').replace(`${designation}, ${organization}`, `${designation} ${organization}`);
+
+    return {
+        name: name || '',
+        designation: designation || '',
+        organization,
+        place: place || '',
+        photoUrl: photoUrl || null,
+        text
+    };
+}
+
+function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex }) {
+    const title = safeString(article.headline_rewritten || article.headline);
+    const formattedBody = article.body_rewritten == null ? safeString(article.body) : String(article.body_rewritten);
+    const mainBody = safeString(article.body);
+    const language = detectLanguage(`${title}\n${formattedBody}`);
+    const subheadings = extractPageMintSubheadings(article.body_rewritten);
+    const place = safeString(article.city || article.reporter_city || article.reporter_district);
+    const reporterName = getReporterValue(article, language, 'name') || safeString(article.reporter_name);
+    const reporterDesignation = safeString(article.reporter_print_designation || article.reporter_designation);
+    const reporterPlace = safeString(article.reporter_city || article.reporter_district || place);
+    const reporterPhotoUrl = toAbsoluteUrlOrNull(article.reporter_photo_url, baseUrl);
+    const byline = buildPageMintByline({
+        name: reporterName,
+        designation: reporterDesignation,
+        place: reporterPlace,
+        language,
+        photoUrl: reporterPhotoUrl
+    });
+    const images = (imagesByNewsId.get(article.id) || []).map((image, index) => ({
+        id: image.id,
+        order: index + 1,
+        sortOrder: image.sort_order || 0,
+        isCover: Boolean(image.is_selected),
+        url: toAbsoluteUrlOrNull(image.image_path, baseUrl),
+        path: image.image_path
+    }));
+    const coverImage = images.find(image => image.isCover) || images[0] || null;
+    const imageUrl = coverImage?.url || null;
+    const imageCaption = safeString(article.image_caption || article.imageCaption) || extractPageMintLabeledValue(
+        article.body_rewritten,
+        /^(?:इमेज कैप्शन|image caption)\s*:\s*(.*)$/i
+    );
+    const shortBody = safeString(article.shortBody || article.short_body);
+    const mediumBody = safeString(article.mediumBody || article.medium_body);
+    const longBody = safeString(article.longBody || article.long_body);
+    const reporter = {
+        id: article.reporter_id ?? null,
+        name: reporterName,
+        nameHi: safeString(article.reporter_name_hi || article.reporter_name),
+        nameEn: safeString(article.reporter_name_en || article.reporter_name),
+        designation: reporterDesignation,
+        photoUrl: reporterPhotoUrl,
+        place: reporterPlace,
+        city: safeString(article.reporter_city),
+        district: safeString(article.reporter_district)
+    };
+    const languageObject = {
+        title,
+        secondary_headline: subheadings[0] || '',
+        category: safeString(article.category),
+        short_250: shortBody,
+        medium_500: mediumBody,
+        long_1000: longBody,
+        image_caption: imageCaption,
+        image_url: imageUrl,
+        place,
+        subheadings: [...subheadings],
+        reporter: { ...reporter },
+        byline: byline.text
+    };
+    const emptyLanguageObject = {};
+    const locationAliases = {
+        place,
+        place_name: place,
+        location: place,
+        location_name: place,
+        city: place,
+        city_name: place,
+        dateline: place
+    };
+
+    return {
+        newsId: article.id,
+        id: article.id,
+        bundleIndex,
+        bundleOrder: bundleIndex + 1,
+        language,
+        category: safeString(article.category),
+        headline: title,
+        title,
+        kicker: '',
+        subheadings: [...subheadings],
+        subheadline: subheadings[0] || '',
+        body: formattedBody,
+        pageMintBody: formattedBody,
+        formattedBody,
+        articleText: formattedBody,
+        mainBody,
+        rawBody: mainBody,
+        shortBody,
+        mediumBody,
+        longBody,
+        short_100: shortBody,
+        medium_300: mediumBody,
+        long_500: longBody,
+        caption: imageCaption,
+        imageCaption,
+        image_caption: imageCaption,
+        imageUrl,
+        image_url: imageUrl,
+        image_link: imageUrl,
+        media: {
+            image_url: imageUrl,
+            image_link: imageUrl,
+            image_caption: imageCaption
+        },
+        ...locationAliases,
+        reporterName,
+        reporterDesignation,
+        reporterPhotoUrl,
+        reporterPlace,
+        reporter,
+        bylineText: byline.text,
+        byline,
+        ui_hindi: language === 'hi' ? languageObject : emptyLanguageObject,
+        ui_english: language === 'en' ? languageObject : emptyLanguageObject,
+        article: {
+            headline: title,
+            secondary_headline: subheadings[0] || '',
+            category: safeString(article.category),
+            image_caption: imageCaption,
+            image_url: imageUrl,
+            place,
+            subheadings: [...subheadings],
+            body: formattedBody,
+            reporter: { ...reporter },
+            byline: byline.text
+        },
+        originalHeadline: safeString(article.headline),
+        originalBody: mainBody,
+        images,
+        coverImage,
+        websiteLinks: {
+            hindi: article.external_hindi_url || null,
+            english: article.external_english_url || null
+        },
+        sourceUrl: article.external_hindi_url || article.external_english_url || null,
+        source_url: article.external_hindi_url || article.external_english_url || null,
+        link: article.external_hindi_url || article.external_english_url || null,
+        tags: safeString(article.tags),
+        createdAt: article.created_at,
+        processedAt: article.processed_at,
+        forwardedAt: article.forwarded_at
+    };
+}
+
 function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }) {
     const sentAt = new Date().toISOString();
 
@@ -110,46 +338,14 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }
         },
 
         count: articles.length,
-        articles: articles.map(article => {
-            const title = article.headline_rewritten || article.headline || '';
-            const body = article.body_rewritten || article.body || '';
-            const images = (imagesByNewsId.get(article.id) || []).map((image, idx) => ({
-                id: image.id,
-                order: idx + 1,
-                sortOrder: image.sort_order || 0,
-                isCover: Boolean(image.is_selected),
-                url: toAbsoluteUrl(image.image_path, baseUrl),
-                path: image.image_path
-            }));
-            const coverImage = images.find(image => image.isCover) || images[0] || null;
-
-            return {
-                newsId: article.id,
-                language: detectLanguage(`${title}\n${body}`),
-                headline: title,
-                originalHeadline: article.headline || '',
-                body,
-                originalBody: article.body || '',
-                reporter: {
-                    id: article.reporter_id,
-                    name: article.reporter_name || '',
-                    nameHi: article.reporter_name_hi || article.reporter_name || '',
-                    nameEn: article.reporter_name_en || article.reporter_name || ''
-                },
-                place: article.city || '',
-                category: article.category || '',
-                tags: article.tags || '',
-                images,
-                coverImage,
-                websiteLinks: {
-                    hindi: article.external_hindi_url || null,
-                    english: article.external_english_url || null
-                },
-                createdAt: article.created_at,
-                processedAt: article.processed_at,
-                forwardedAt: article.forwarded_at
-            };
-        })
+        articles: articles.map((article, index) => buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex: index })),
+        meta: {
+            schemaVersion: 'nms-pagemint-v2',
+            count: articles.length,
+            articleIds: articles.map(article => article.id),
+            mixedCategories: new Set(articles.map(article => safeString(article.category))).size > 1,
+            mixedLanguages: new Set(articles.map(article => detectLanguage(`${article.headline_rewritten || article.headline || ''}\n${article.body_rewritten || article.body || ''}`))).size > 1
+        }
     };
 }
 
@@ -185,6 +381,7 @@ async function sendNewspaperBundle(payload) {
 
 module.exports = {
     buildNewspaperPayload,
+    extractPageMintSubheadings,
     sendNewspaperBundle,
     getBaseUrl
 };

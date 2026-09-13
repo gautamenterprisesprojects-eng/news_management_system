@@ -242,6 +242,8 @@ router.get('/api-targets/:id/news', (req, res) => {
 
         let query = '';
         let params = [];
+        const orderDirection = req.query.sort === 'oldest' ? 'ASC' : 'DESC';
+        const orderBy = `ORDER BY datetime(COALESCE(n.processed_at, n.created_at)) ${orderDirection}, n.id ${orderDirection}`;
 
         if (target.role === 'sub_editor') {
             query = `
@@ -255,7 +257,7 @@ router.get('/api-targets/:id/news', (req, res) => {
                   AND TRIM(n.headline_rewritten) != ''
                   AND n.body_rewritten IS NOT NULL
                   AND TRIM(n.body_rewritten) != ''
-                ORDER BY n.processed_at ASC
+                ${orderBy}
             `;
             params = [targetId];
         } else if (target.role === 'reporter') {
@@ -269,7 +271,7 @@ router.get('/api-targets/:id/news', (req, res) => {
                   AND TRIM(n.headline_rewritten) != ''
                   AND n.body_rewritten IS NOT NULL
                   AND TRIM(n.body_rewritten) != ''
-                ORDER BY n.processed_at ASC
+                ${orderBy}
             `;
             params = [targetId];
         }
@@ -298,7 +300,7 @@ router.get('/api-targets/:id/pdfs', (req, res) => {
         if (!target) return res.status(404).json({ error: 'PDF target not found.' });
 
         const pdfs = queryAll(
-            'SELECT id, pdf_url, filename, created_at FROM api_pdfs WHERE target_user_id = ? ORDER BY created_at DESC',
+            'SELECT id, pdf_url, filename, job_id, bundle_id, edition_id, status, created_at FROM api_pdfs WHERE target_user_id = ? ORDER BY created_at DESC',
             [targetId]
         );
 
@@ -339,9 +341,12 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
         let articles = [];
         if (targetUser.role === 'sub_editor') {
             articles = queryAll(`
-                SELECT n.*, u.full_name as reporter_name, u.name_hi as reporter_name_hi, u.name_en as reporter_name_en
+              SELECT n.*, u.full_name as reporter_name, u.name_hi as reporter_name_hi, u.name_en as reporter_name_en,
+                  u.post as reporter_designation, u.print_designation as reporter_print_designation,
+                  u.avatar_path as reporter_photo_url, u.city as reporter_city,
+                  u.district as reporter_district
                 FROM news n
-                JOIN users u ON u.id = n.reporter_id
+              LEFT JOIN users u ON u.id = n.reporter_id
                 WHERE n.id IN (${placeholders})
                   AND n.sub_editor_id = ?
                   AND n.sub_editor_status = 'forwarded'
@@ -350,13 +355,15 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
                   AND TRIM(n.headline_rewritten) != ''
                   AND n.body_rewritten IS NOT NULL
                   AND TRIM(n.body_rewritten) != ''
-                ORDER BY n.processed_at ASC, n.id ASC
             `, [...newsIds, targetUserId]);
         } else {
             articles = queryAll(`
-                SELECT n.*, u.full_name as reporter_name, u.name_hi as reporter_name_hi, u.name_en as reporter_name_en
+              SELECT n.*, u.full_name as reporter_name, u.name_hi as reporter_name_hi, u.name_en as reporter_name_en,
+                  u.post as reporter_designation, u.print_designation as reporter_print_designation,
+                  u.avatar_path as reporter_photo_url, u.city as reporter_city,
+                  u.district as reporter_district
                 FROM news n
-                JOIN users u ON u.id = n.reporter_id
+              LEFT JOIN users u ON u.id = n.reporter_id
                 WHERE n.id IN (${placeholders})
                   AND n.reporter_id = ?
                   AND n.status = 'processed'
@@ -364,13 +371,17 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
                   AND TRIM(n.headline_rewritten) != ''
                   AND n.body_rewritten IS NOT NULL
                   AND TRIM(n.body_rewritten) != ''
-                ORDER BY n.processed_at ASC, n.id ASC
             `, [...newsIds, targetUserId]);
         }
 
         if (articles.length !== newsIds.length) {
             return res.status(400).json({ error: 'Some selected news items are invalid or do not belong to the target.' });
         }
+
+        const articleById = new Map(articles.map(article => [String(article.id), article]));
+        articles = newsIds
+            .map(id => articleById.get(String(id)))
+            .filter(Boolean);
 
         const imageRows = queryAll(`
             SELECT news_id, id, image_path, is_selected, sort_order
