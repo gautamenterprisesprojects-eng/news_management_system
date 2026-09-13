@@ -1553,6 +1553,10 @@ let _selectedApiTargetId = null;
 let _selectedApiTargetName = '';
 let _selectedApiNews = new Set();
 let _apiNewsCache = [];
+let _apiNewsSort = 'latest';
+let _apiPdfPollTimer = null;
+let _apiPdfElapsedTimer = null;
+let _apiPdfWaitStartedAt = 0;
 
 function renderEditorApiScreen() {
     const app = document.getElementById('app');
@@ -1582,11 +1586,16 @@ function renderEditorApiScreen() {
                             <input type="checkbox" id="selectAllApiNews" onchange="toggleSelectAllApiNews(this.checked)">
                             <label for="selectAllApiNews" style="margin-left:8px; font-size:14px;">सभी चुनें</label>
                         </div>
+                        <select class="form-input form-select api-sort-select" id="apiNewsSortSelect" onchange="changeApiNewsSort(this.value)">
+                            <option value="latest">Latest to Oldest</option>
+                            <option value="oldest">Oldest to Latest</option>
+                        </select>
                     </div>
                     <button class="btn btn-primary btn-sm" id="apiBundleSendBtn" onclick="sendApiNewspaperBundle()" disabled>
                         📰 API बंडल भेजें (0)
                     </button>
                 </div>
+                <div id="apiBundleWaitStatus" class="api-bundle-wait hidden"></div>
                 <div id="apiNewsList" style="margin-top: 12px; padding: 0 8px; display: flex; flex-direction: column; gap: 10px;"></div>
             </div>
         </main>
@@ -1635,6 +1644,7 @@ async function loadApiTargets() {
 }
 
 function backToApiTargets() {
+    stopApiPdfWait();
     document.getElementById('apiTargetsSelection').classList.remove('hidden');
     document.getElementById('apiNewsSelection').classList.add('hidden');
     _selectedApiTargetId = null;
@@ -1652,6 +1662,8 @@ async function selectApiTarget(id, name) {
     updateApiBundleToolbar();
     const title = document.getElementById('apiSelectedTargetTitle');
     if (title) title.textContent = `${name} की AI rewritten processed खबरें`;
+    const sortSelect = document.getElementById('apiNewsSortSelect');
+    if (sortSelect) sortSelect.value = _apiNewsSort;
     
     await loadNewsForApiTarget();
 }
@@ -1661,28 +1673,61 @@ async function loadNewsForApiTarget() {
     container.innerHTML = '<div class="loading-spinner" style="margin:40px auto;"></div>';
 
     try {
-        const data = await api(`/editor/api-targets/${_selectedApiTargetId}/news`);
+        const params = new URLSearchParams({ sort: _apiNewsSort });
+        const data = await api(`/editor/api-targets/${_selectedApiTargetId}/news?${params.toString()}`);
         _apiNewsCache = data.news || [];
-        
-        if (_apiNewsCache.length === 0) {
-            container.innerHTML = `<div class="empty-state"><div class="empty-text">${escapeHtml(_selectedApiTargetName || 'इस यूज़र')} की कोई AI rewritten processed खबर उपलब्ध नहीं है</div></div>`;
-            return;
-        }
-
-        container.innerHTML = _apiNewsCache.map(news => `
-            <div class="card api-news-card" onclick="toggleApiNewsSelection(${news.id})" id="api-news-card-${news.id}" style="padding:12px; display:flex; gap:12px; cursor:pointer;">
-                <input type="checkbox" id="api-chk-${news.id}" style="margin-top:4px;" onclick="event.stopPropagation(); toggleApiNewsSelection(${news.id})" ${_selectedApiNews.has(news.id) ? 'checked' : ''}>
-                <div style="flex:1;">
-                    <div style="font-weight:bold; font-size:0.95rem; line-height:1.4;">${escapeHtml(news.headline_rewritten || news.headline)}</div>
-                    <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:6px;">
-                        ${escapeHtml(news.reporter_name || '')} • ${escapeHtml(news.city || '')} • ${formatDate(news.processed_at)}
-                    </div>
-                </div>
-            </div>
-        `).join('');
+        renderApiNewsList();
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
     }
+}
+
+function changeApiNewsSort(value) {
+    _apiNewsSort = value === 'oldest' ? 'oldest' : 'latest';
+    loadNewsForApiTarget();
+}
+
+function getApiNewsTimestamp(news) {
+    const raw = news.processed_at || news.created_at || '';
+    const parsed = Date.parse(String(raw).replace(' ', 'T'));
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function getSortedApiNews() {
+    const direction = _apiNewsSort === 'oldest' ? 1 : -1;
+    return [..._apiNewsCache].sort((a, b) => {
+        const timeDiff = getApiNewsTimestamp(a) - getApiNewsTimestamp(b);
+        if (timeDiff !== 0) return timeDiff * direction;
+        return (Number(a.id) - Number(b.id)) * direction;
+    });
+}
+
+function renderApiNewsList() {
+    const container = document.getElementById('apiNewsList');
+    if (!container) return;
+
+    const sortedNews = getSortedApiNews();
+    const selectAll = document.getElementById('selectAllApiNews');
+    if (selectAll) {
+        selectAll.checked = sortedNews.length > 0 && sortedNews.every(n => _selectedApiNews.has(n.id));
+    }
+
+    if (sortedNews.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-text">${escapeHtml(_selectedApiTargetName || 'इस यूज़र')} की कोई AI rewritten processed खबर उपलब्ध नहीं है</div></div>`;
+        return;
+    }
+
+    container.innerHTML = sortedNews.map(news => `
+        <div class="card api-news-card" onclick="toggleApiNewsSelection(${news.id})" id="api-news-card-${news.id}" style="padding:12px; display:flex; gap:12px; cursor:pointer;">
+            <input type="checkbox" id="api-chk-${news.id}" style="margin-top:4px;" onclick="event.stopPropagation(); toggleApiNewsSelection(${news.id})" ${_selectedApiNews.has(news.id) ? 'checked' : ''}>
+            <div style="flex:1;">
+                <div style="font-weight:bold; font-size:0.95rem; line-height:1.4;">${escapeHtml(news.headline_rewritten || news.headline)}</div>
+                <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:6px;">
+                    ${escapeHtml(news.reporter_name || '')} • ${escapeHtml(news.city || '')} • ${formatDate(news.processed_at || news.created_at)}
+                </div>
+            </div>
+        </div>
+    `).join('');
 }
 
 function toggleApiNewsSelection(id) {
@@ -1694,11 +1739,14 @@ function toggleApiNewsSelection(id) {
         _selectedApiNews.add(id);
         if (chk) chk.checked = true;
     }
+    const visibleNews = getSortedApiNews();
+    const selectAll = document.getElementById('selectAllApiNews');
+    if (selectAll) selectAll.checked = visibleNews.length > 0 && visibleNews.every(n => _selectedApiNews.has(n.id));
     updateApiBundleToolbar();
 }
 
 function toggleSelectAllApiNews(checked) {
-    _apiNewsCache.forEach(n => {
+    getSortedApiNews().forEach(n => {
         if (checked) _selectedApiNews.add(n.id);
         else _selectedApiNews.delete(n.id);
         const chk = document.getElementById(`api-chk-${n.id}`);
