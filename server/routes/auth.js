@@ -5,6 +5,8 @@ const bcrypt = require('bcryptjs');
 const { queryGet } = require('../db/init');
 const { verifyToken, JWT_SECRET } = require('../middleware/auth');
 
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
+
 /**
  * POST /api/auth/login
  * Authenticate user and return JWT token
@@ -33,7 +35,7 @@ router.post('/login', (req, res) => {
         const token = jwt.sign(
             { id: user.id, username: user.username, role: user.role, is_api_enabled: user.is_api_enabled },
             JWT_SECRET,
-            { expiresIn: '24h' }
+            { expiresIn: JWT_EXPIRES_IN }
         );
 
         res.json({

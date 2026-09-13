@@ -37,13 +37,17 @@ async function api(endpoint, options = {}) {
 
     try {
         const res = await fetch(apiUrl.pathname + apiUrl.search, fetchOptions);
+        const data = await res.json().catch(() => ({}));
 
         if (res.status === 401) {
-            logout();
-            return { error: 'Session expired' };
+            const message = data.error || 'Authentication failed.';
+            if (endpoint !== '/auth/login') {
+                logout();
+            }
+            return { error: message };
         }
 
-        return await res.json();
+        return data;
     } catch (err) {
         console.error('API error:', err);
         return { error: 'Network error' };

@@ -93,7 +93,8 @@ async function handleLogin(e) {
             reporter: '#/reporter',
             editor: '#/editor',
             sub_editor: '#/sub-editor',
-            operator: '#/operator'
+            operator: '#/operator',
+            ad_manager: '#/ad-manager'
         };
 
         window.location.hash = roleRoutes[data.user.role] || '#/login';
