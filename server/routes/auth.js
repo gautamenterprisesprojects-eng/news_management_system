@@ -13,12 +13,13 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
  */
 router.post('/login', (req, res) => {
     try {
-        const { username, password } = req.body;
+        const username = String(req.body.username || '').trim();
+        const { password } = req.body;
         if (!username || !password) {
             return res.status(400).json({ error: 'Username and password are required.' });
         }
 
-        const user = queryGet('SELECT * FROM users WHERE username = ?', [username]);
+        const user = queryGet('SELECT * FROM users WHERE username = ? COLLATE NOCASE', [username]);
         if (!user) {
             return res.status(401).json({ error: 'Invalid credentials.' });
         }
