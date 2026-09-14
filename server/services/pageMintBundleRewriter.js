@@ -68,7 +68,7 @@ function parseJsonObject(text) {
     }
 }
 
-function validateRewrite(parsed) {
+function validateRewrite(parsed, options = {}) {
     if (!parsed || typeof parsed !== 'object') throw new Error('Rewrite JSON is empty.');
     const classification = parsed.classification || {};
     const hindi = parsed.hindi || {};
@@ -86,7 +86,7 @@ function validateRewrite(parsed) {
     }
     if (!hasHindi(hindi.photo_caption)) throw new Error('Rewrite photo caption is missing Hindi text.');
     if (!hasHindi(hindi.body)) throw new Error('Rewrite body is missing Hindi text.');
-    if (wordCount(hindi.body) < 1000) throw new Error('Rewrite body is under 1000 words.');
+    if (options.requireMinWords !== false && wordCount(hindi.body) < 1000) throw new Error('Rewrite body is under 1000 words.');
 
     const dateline = `${safeString(classification.place_name)}.`;
     if (!safeString(hindi.body).startsWith(dateline)) throw new Error('Rewrite body dateline does not match place_name.');
@@ -317,17 +317,31 @@ async function requestRewrite(article) {
     if (!parsed.classification || !parsed.hindi) {
         throw new Error('Gemini PageMint rewrite did not include classification and hindi fields.');
     }
-    if (wordCount(parsed?.hindi?.body) < 1000) {
-        const repair = parseJsonObject(await callGemini([
+    for (let repairAttempt = 1; repairAttempt <= 3 && wordCount(parsed?.hindi?.body) < 1000; repairAttempt += 1) {
+        let repair;
+        try {
+            repair = parseJsonObject(await callGemini([
             { role: 'system', content: `${systemPrompt}\nReturn only JSON: {"replace": {}, "append": {"hindi.body": "NEW CONTINUATION TEXT ONLY"}}. Append only new continuation words. Do not repeat existing sentences.` },
-            { role: 'user', content: `${userPrompt}\n\nCURRENT BODY:\n${safeString(parsed?.hindi?.body)}` }
-        ]));
+                { role: 'user', content: `${userPrompt}\n\nCURRENT BODY WORD COUNT: ${wordCount(parsed?.hindi?.body)}\nWORDS STILL NEEDED: ${Math.max(0, 1000 - wordCount(parsed?.hindi?.body))}\nCURRENT BODY:\n${safeString(parsed?.hindi?.body)}` }
+            ]));
+        } catch (repairError) {
+            parsed._pageMintRewriteWarning = `Body remained under 1000 words; repair ${repairAttempt} failed.`;
+            break;
+        }
         const continuation = safeString(repair?.append?.['hindi.body']);
         if (continuation) parsed.hindi.body = `${safeString(parsed.hindi.body)} ${continuation}`.trim();
+        if (!continuation) {
+            parsed._pageMintRewriteWarning = `Body remained under 1000 words; repair ${repairAttempt} returned no continuation.`;
+            break;
+        }
     }
 
     parsed = ensureMatchingDateline(parsed);
-    validateRewrite(parsed);
+    const finalBodyWords = wordCount(parsed?.hindi?.body);
+    if (finalBodyWords < 1000 && !parsed._pageMintRewriteWarning) {
+        parsed._pageMintRewriteWarning = `Body remained under 1000 words after repairs (${finalBodyWords} words).`;
+    }
+    validateRewrite(parsed, { requireMinWords: false });
     return parsed;
 }
 
@@ -374,7 +388,9 @@ function applyRewriteToArticle(article, parsed) {
             model_name: process.env.PAGEMINT_GEMINI_MODEL || process.env.GEMINI_MODEL || DEFAULT_MODEL,
             confidence: Number(classification.confidence),
             reason: safeString(classification.reason),
-            keywords: classification.keywords.map(safeString).filter(Boolean)
+            keywords: classification.keywords.map(safeString).filter(Boolean),
+            bodyWordCount: wordCount(hindi.body),
+            warning: safeString(parsed._pageMintRewriteWarning)
         }
     });
 
@@ -430,8 +446,12 @@ async function rewritePageMintBundle(payload) {
     }
 
     const rewrittenArticles = [];
+    const warnings = [];
     for (const article of articles) {
         const parsed = await requestRewrite(article);
+        if (parsed._pageMintRewriteWarning) {
+            warnings.push({ newsId: article.newsId || article.id || null, warning: parsed._pageMintRewriteWarning });
+        }
         rewrittenArticles.push(applyRewriteToArticle(article, parsed));
     }
 
@@ -447,6 +467,7 @@ async function rewritePageMintBundle(payload) {
                 promptVersion: PROMPT_VERSION,
                 model: process.env.PAGEMINT_GEMINI_MODEL || process.env.GEMINI_MODEL || DEFAULT_MODEL,
                 articleCount: rewrittenArticles.length,
+                warnings,
                 rewrittenAt: new Date().toISOString()
             }
         }
