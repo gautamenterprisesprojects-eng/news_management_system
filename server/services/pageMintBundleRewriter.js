@@ -89,9 +89,29 @@ function validateRewrite(parsed) {
     if (wordCount(hindi.body) < 1000) throw new Error('Rewrite body is under 1000 words.');
 
     const dateline = `${safeString(classification.place_name)}.`;
-    if (!safeString(hindi.body).startsWith(dateline)) {
-        throw new Error('Rewrite body dateline does not match place_name.');
+    if (!safeString(hindi.body).startsWith(dateline)) throw new Error('Rewrite body dateline does not match place_name.');
+}
+
+function escapeRegex(value) {
+    return safeString(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function ensureMatchingDateline(parsed) {
+    const place = safeString(parsed?.classification?.place_name);
+    if (!place || !parsed?.hindi) return parsed;
+
+    const body = safeString(parsed.hindi.body);
+    const exactDateline = `${place}.`;
+    if (body.startsWith(exactDateline)) return parsed;
+
+    const placeDatelinePattern = new RegExp(`^\\s*${escapeRegex(place)}\\s*[।.:：-]+\\s*`);
+    if (placeDatelinePattern.test(body)) {
+        parsed.hindi.body = body.replace(placeDatelinePattern, `${exactDateline} `).trim();
+        return parsed;
     }
+
+    parsed.hindi.body = `${exactDateline} ${body}`.trim();
+    return parsed;
 }
 
 function removeForbiddenFields(parsed) {
@@ -293,7 +313,7 @@ async function requestRewrite(article) {
         ]));
     }
 
-    parsed = removeForbiddenFields(parsed);
+    parsed = ensureMatchingDateline(removeForbiddenFields(parsed));
     if (!parsed.classification || !parsed.hindi) {
         throw new Error('Gemini PageMint rewrite did not include classification and hindi fields.');
     }
@@ -306,6 +326,7 @@ async function requestRewrite(article) {
         if (continuation) parsed.hindi.body = `${safeString(parsed.hindi.body)} ${continuation}`.trim();
     }
 
+    parsed = ensureMatchingDateline(parsed);
     validateRewrite(parsed);
     return parsed;
 }

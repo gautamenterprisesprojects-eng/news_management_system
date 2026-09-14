@@ -397,6 +397,7 @@ function renderRawNewsCards() {
 
 async function loadProcessedNews() {
     const container = document.getElementById('processedNewsList');
+    if (!container) return;
     const loadSeq = ++_processedNewsLoadSeq;
     try {
         const data = await api('/editor/news/processed');
