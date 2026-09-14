@@ -7,6 +7,7 @@ const { rewriteArticle } = require('../services/aiRewriter');
 const { resolveUpload } = require('../storage');
 const { deliverForwardedNews, parseExternalNewsId } = require('../services/externalNews');
 const { buildNewspaperPayload, sendNewspaperBundle, getBaseUrl } = require('../services/newspaperGenerator');
+const { rewritePageMintBundle } = require('../services/pageMintBundleRewriter');
 
 // All editor routes require editor role
 router.use(verifyToken, requireRole('editor'));
@@ -401,7 +402,8 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
             imagesByNewsId,
             baseUrl: getBaseUrl(req)
         });
-        const delivery = await sendNewspaperBundle(payload);
+        const rewriteResult = await rewritePageMintBundle(payload);
+        const delivery = await sendNewspaperBundle(rewriteResult.payload);
         if (!delivery.delivered) {
             return res.status(503).json({ error: delivery.error || 'Newspaper generator API is not configured.' });
         }
@@ -411,7 +413,15 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
             newsIds
         );
 
-        res.json({ success: true, message: 'Bundle sent to newspaper generator.', delivery, payloadPreview: payload });
+        res.json({
+            success: true,
+            message: rewriteResult.result?.rewritten
+                ? 'Bundle rewritten and sent to newspaper generator.'
+                : 'Bundle sent to newspaper generator.',
+            rewrite: rewriteResult.result,
+            delivery,
+            payloadPreview: rewriteResult.payload
+        });
     } catch (err) {
         console.error('Newspaper generator bundle error:', err);
         res.status(500).json({ error: `Newspaper generator failed: ${err.message}` });
