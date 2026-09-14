@@ -36,6 +36,33 @@ function isVisibleToMainEditor(news) {
     return !news.sub_editor_id || news.sub_editor_status === 'forwarded';
 }
 
+function runPageMintBundleJob({ payload, newsIds, placeholders }) {
+    setImmediate(async () => {
+        try {
+            const rewriteResult = await rewritePageMintBundle(payload);
+            const delivery = await sendNewspaperBundle(rewriteResult.payload);
+            if (!delivery.delivered) {
+                console.error('Newspaper generator background delivery skipped:', delivery.error || 'not delivered');
+                return;
+            }
+
+            queryRun(
+                `UPDATE news SET newspaper_sent_at = datetime('now', 'localtime') WHERE id IN (${placeholders})`,
+                newsIds
+            );
+
+            console.log('Newspaper generator background bundle sent:', {
+                job_id: rewriteResult.payload.job_id,
+                bundle_id: rewriteResult.payload.bundle_id,
+                article_count: rewriteResult.payload.count,
+                rewritten: Boolean(rewriteResult.result?.rewritten)
+            });
+        } catch (err) {
+            console.error('Newspaper generator background bundle error:', err);
+        }
+    });
+}
+
 /**
  * GET /api/editor/reporters
  */
@@ -402,25 +429,15 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
             imagesByNewsId,
             baseUrl: getBaseUrl(req)
         });
-        const rewriteResult = await rewritePageMintBundle(payload);
-        const delivery = await sendNewspaperBundle(rewriteResult.payload);
-        if (!delivery.delivered) {
-            return res.status(503).json({ error: delivery.error || 'Newspaper generator API is not configured.' });
-        }
-
-        queryRun(
-            `UPDATE news SET newspaper_sent_at = datetime('now', 'localtime') WHERE id IN (${placeholders})`,
-            newsIds
-        );
+        runPageMintBundleJob({ payload, newsIds, placeholders });
 
         res.json({
             success: true,
-            message: rewriteResult.result?.rewritten
-                ? 'Bundle rewritten and sent to newspaper generator.'
-                : 'Bundle sent to newspaper generator.',
-            rewrite: rewriteResult.result,
-            delivery,
-            payloadPreview: rewriteResult.payload
+            accepted: true,
+            message: 'Bundle job started. You can close the browser; NMS will rewrite and send it to PageMint in the background.',
+            job_id: payload.job_id,
+            bundle_id: payload.bundle_id,
+            payloadPreview: payload
         });
     } catch (err) {
         console.error('Newspaper generator bundle error:', err);
