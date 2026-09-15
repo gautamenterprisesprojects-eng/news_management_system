@@ -7,7 +7,7 @@ const { rewriteArticle } = require('../services/aiRewriter');
 const { resolveUpload } = require('../storage');
 const { deliverForwardedNews, parseExternalNewsId } = require('../services/externalNews');
 const { buildNewspaperPayload, sendNewspaperBundle, getBaseUrl } = require('../services/newspaperGenerator');
-const { rewritePageMintBundle } = require('../services/pageMintBundleRewriter');
+const { rewriteAndCachePageMintBundle, queuePageMintRewriteForNews } = require('../services/pageMintRewriteCache');
 
 // All editor routes require editor role
 router.use(verifyToken, requireRole('editor'));
@@ -118,12 +118,12 @@ function markPageMintBundleFailed(jobId, stage, err) {
     );
 }
 
-function runPageMintBundleJob({ payload, newsIds, placeholders }) {
+function runPageMintBundleJob({ targetUser, payload, newsIds, placeholders }) {
     setImmediate(async () => {
         let stage = 'rewrite';
         try {
             markPageMintBundleRewriting(payload.job_id);
-            const rewriteResult = await rewritePageMintBundle(payload);
+            const rewriteResult = await rewriteAndCachePageMintBundle({ targetUser, payload });
             markPageMintBundleRewriteResult(payload.job_id, rewriteResult.payload, rewriteResult.result);
 
             stage = 'delivery';
@@ -520,7 +520,7 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
             baseUrl: getBaseUrl(req)
         });
         insertPageMintBundleRecord({ targetUser, newsIds, payload });
-        runPageMintBundleJob({ payload, newsIds, placeholders });
+        runPageMintBundleJob({ targetUser, payload, newsIds, placeholders });
 
         res.json({
             success: true,
@@ -780,6 +780,7 @@ router.post('/news/:id/rewrite', async (req, res) => {
                 "UPDATE news SET headline_rewritten = ?, body_rewritten = ?, ai_provider = ?, status = 'processed', editor_id = ?, processed_at = datetime('now', 'localtime') WHERE id = ?",
                 [result.headline, result.body, usedProvider, req.user.id, news.id]
             );
+            queuePageMintRewriteForNews(news.id, getBaseUrl(req));
 
             res.json({
                 id: news.id,
@@ -825,6 +826,9 @@ router.put('/news/:id/content', (req, res) => {
             'UPDATE news SET headline_rewritten = ?, body_rewritten = ? WHERE id = ?',
             [headline, body, news.id]
         );
+        if (news.status === 'processed') {
+            queuePageMintRewriteForNews(news.id, getBaseUrl(req));
+        }
 
         res.json({
             success: true,
@@ -866,6 +870,7 @@ router.put('/news/:id/approve', (req, res) => {
             "UPDATE news SET status = 'processed', editor_id = ?, processed_at = datetime('now', 'localtime') WHERE id = ?",
             [req.user.id, news.id]
         );
+        queuePageMintRewriteForNews(news.id, getBaseUrl(req));
 
         res.json({ message: 'News approved and processed.' });
     } catch (err) {

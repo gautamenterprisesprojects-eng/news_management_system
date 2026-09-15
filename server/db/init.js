@@ -182,6 +182,31 @@ async function initDatabase() {
         )
     `);
 
+    // ============================================================
+    // TABLE: pagemint_rewritten_articles
+    // Article-level PageMint rewrite cache for API-style filtered reads.
+    // Rows are transient and cleaned with the PageMint bundle retention.
+    // ============================================================
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS pagemint_rewritten_articles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_user_id INTEGER NOT NULL,
+            target_role TEXT,
+            news_id INTEGER NOT NULL,
+            job_id TEXT,
+            bundle_id TEXT,
+            edition_id TEXT,
+            category TEXT,
+            source_article_json TEXT NOT NULL,
+            rewritten_article_json TEXT,
+            rewrite_status TEXT DEFAULT 'pending' CHECK(rewrite_status IN ('pending','rewriting','rewritten','failed','skipped')),
+            error_message TEXT,
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            rewritten_at TEXT,
+            UNIQUE(target_user_id, news_id)
+        )
+    `);
+
     migrateUsersRoleConstraint();
 
     // Check the schema explicitly; do not hide failed migrations as duplicate columns.
@@ -314,6 +339,9 @@ async function initDatabase() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_pagemint_bundles_created_at ON pagemint_bundles(created_at)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_pagemint_bundles_job ON pagemint_bundles(job_id)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_pagemint_bundles_bundle ON pagemint_bundles(bundle_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_pagemint_articles_target ON pagemint_rewritten_articles(target_user_id, category, created_at)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_pagemint_articles_news ON pagemint_rewritten_articles(news_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_pagemint_articles_created_at ON pagemint_rewritten_articles(created_at)`);
 
     // ============================================================
     // SEED: Default admin account (admin / admin123)

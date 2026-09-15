@@ -79,6 +79,7 @@ const advertisementRoutes = require('./routes/advertisement');
 const profileRoutes = require('./routes/profile');
 const publicRoutes = require('./routes/public');
 const externalNewsRoutes = require('./routes/externalNews');
+const pagemintBundleRoutes = require('./routes/pagemintBundles');
 const pushRoutes = require('./routes/push');
 const webhookRoutes = require('./routes/webhook');
 
@@ -93,6 +94,7 @@ app.use('/api/transliterate', require('./routes/transliterate'));
 app.use('/api/profile', profileRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/external-news', externalNewsRoutes);
+app.use('/api/pagemint-bundles', pagemintBundleRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/webhook', webhookRoutes);
 
@@ -125,6 +127,12 @@ function cleanupOldPageMintBundles() {
         if (oldBundles.length > 0) {
             queryRun("DELETE FROM pagemint_bundles WHERE datetime(created_at) < datetime('now', 'localtime', ?)", [`-${PAGEMINT_BUNDLE_RETENTION_HOURS} hours`]);
             console.log(`Cleaned up ${oldBundles.length} old PageMint bundle records.`);
+        }
+
+        const oldArticles = queryAll("SELECT id FROM pagemint_rewritten_articles WHERE datetime(created_at) < datetime('now', 'localtime', ?)", [`-${PAGEMINT_BUNDLE_RETENTION_HOURS} hours`]);
+        if (oldArticles.length > 0) {
+            queryRun("DELETE FROM pagemint_rewritten_articles WHERE datetime(created_at) < datetime('now', 'localtime', ?)", [`-${PAGEMINT_BUNDLE_RETENTION_HOURS} hours`]);
+            console.log(`Cleaned up ${oldArticles.length} old PageMint rewritten article records.`);
         }
     } catch (e) {
         console.error('Error cleaning PageMint bundle records:', e);
