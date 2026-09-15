@@ -9,6 +9,7 @@ function getConfiguredKey() {
     return process.env.PAGEMINT_BUNDLE_READ_API_KEY
         || process.env.NEWSPAPER_GENERATOR_API_KEY
         || process.env.NEWSPAPER_GENERATOR_WEBHOOK_KEY
+        || process.env.EXTERNAL_NEWS_API_KEY
         || '';
 }
 
