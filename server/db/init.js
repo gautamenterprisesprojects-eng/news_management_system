@@ -155,6 +155,33 @@ async function initDatabase() {
         )
     `);
 
+    // ============================================================
+    // TABLE: pagemint_bundles
+    // Stores transient PageMint bundle payloads for debugging/retry
+    // without affecting the main news workflow.
+    // ============================================================
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS pagemint_bundles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_user_id INTEGER NOT NULL,
+            target_role TEXT,
+            job_id TEXT UNIQUE NOT NULL,
+            bundle_id TEXT UNIQUE NOT NULL,
+            edition_id TEXT,
+            news_ids_json TEXT NOT NULL,
+            original_payload_json TEXT NOT NULL,
+            rewritten_payload_json TEXT,
+            rewrite_status TEXT DEFAULT 'pending' CHECK(rewrite_status IN ('pending','rewriting','rewritten','failed','skipped')),
+            delivery_status TEXT DEFAULT 'pending' CHECK(delivery_status IN ('pending','sending','delivered','failed','skipped')),
+            delivery_response_json TEXT,
+            error_message TEXT,
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            rewritten_at TEXT,
+            delivered_at TEXT,
+            pdf_received_at TEXT
+        )
+    `);
+
     migrateUsersRoleConstraint();
 
     // Check the schema explicitly; do not hide failed migrations as duplicate columns.
@@ -283,6 +310,10 @@ async function initDatabase() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_ads_created_at ON advertisements(created_at)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_api_pdfs_target ON api_pdfs(target_user_id, created_at)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_api_pdfs_created_at ON api_pdfs(created_at)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_pagemint_bundles_target ON pagemint_bundles(target_user_id, created_at)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_pagemint_bundles_created_at ON pagemint_bundles(created_at)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_pagemint_bundles_job ON pagemint_bundles(job_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_pagemint_bundles_bundle ON pagemint_bundles(bundle_id)`);
 
     // ============================================================
     // SEED: Default admin account (admin / admin123)

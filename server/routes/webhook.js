@@ -80,6 +80,17 @@ router.post('/newspaper-pdf', verifyWebhookKey, upload.single('pdf'), (req, res)
             [targetUserId, pdfUrl, req.file.originalname, jobId, bundleId, editionId, status]
         );
 
+        if (jobId || bundleId) {
+            queryRun(
+                `UPDATE pagemint_bundles
+                 SET pdf_received_at = datetime('now', 'localtime'),
+                     delivery_status = CASE WHEN delivery_status = 'delivered' THEN delivery_status ELSE 'delivered' END
+                 WHERE (? IS NOT NULL AND job_id = ?)
+                    OR (? IS NOT NULL AND bundle_id = ?)`,
+                [jobId, jobId, bundleId, bundleId]
+            );
+        }
+
         res.json({ success: true, message: 'PDF received and stored successfully.', pdfUrl });
     } catch (error) {
         console.error('Webhook PDF upload error:', error);

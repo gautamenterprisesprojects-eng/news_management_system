@@ -36,11 +36,100 @@ function isVisibleToMainEditor(news) {
     return !news.sub_editor_id || news.sub_editor_status === 'forwarded';
 }
 
+function jsonText(value) {
+    return JSON.stringify(value ?? null);
+}
+
+function insertPageMintBundleRecord({ targetUser, newsIds, payload }) {
+    queryRun(
+        `INSERT INTO pagemint_bundles
+         (target_user_id, target_role, job_id, bundle_id, edition_id, news_ids_json, original_payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+            targetUser.id,
+            targetUser.role,
+            payload.job_id,
+            payload.bundle_id,
+            payload.edition_id,
+            jsonText(newsIds),
+            jsonText(payload)
+        ]
+    );
+}
+
+function markPageMintBundleRewriting(jobId) {
+    queryRun(
+        "UPDATE pagemint_bundles SET rewrite_status = 'rewriting' WHERE job_id = ?",
+        [jobId]
+    );
+}
+
+function markPageMintBundleRewriteResult(jobId, payload, result) {
+    const status = result?.rewritten === false ? 'skipped' : 'rewritten';
+    queryRun(
+        `UPDATE pagemint_bundles
+         SET rewrite_status = ?,
+             rewritten_payload_json = ?,
+             rewritten_at = datetime('now', 'localtime')
+         WHERE job_id = ?`,
+        [status, jsonText(payload), jobId]
+    );
+}
+
+function markPageMintBundleDeliverySending(jobId) {
+    queryRun(
+        "UPDATE pagemint_bundles SET delivery_status = 'sending' WHERE job_id = ?",
+        [jobId]
+    );
+}
+
+function markPageMintBundleDeliveryResult(jobId, delivery) {
+    const status = delivery.delivered ? 'delivered' : 'skipped';
+    queryRun(
+        `UPDATE pagemint_bundles
+         SET delivery_status = ?,
+             delivery_response_json = ?,
+             delivered_at = CASE WHEN ? = 'delivered' THEN datetime('now', 'localtime') ELSE delivered_at END,
+             error_message = CASE WHEN ? = 'skipped' THEN ? ELSE error_message END
+         WHERE job_id = ?`,
+        [status, jsonText(delivery), status, status, delivery.error || delivery.reason || null, jobId]
+    );
+}
+
+function markPageMintBundleFailed(jobId, stage, err) {
+    if (stage === 'rewrite') {
+        queryRun(
+            `UPDATE pagemint_bundles
+             SET rewrite_status = 'failed',
+                 delivery_status = 'failed',
+                 error_message = ?
+             WHERE job_id = ?`,
+            [err.message || String(err), jobId]
+        );
+        return;
+    }
+
+    queryRun(
+        `UPDATE pagemint_bundles
+         SET delivery_status = 'failed',
+             error_message = ?
+         WHERE job_id = ?`,
+        [err.message || String(err), jobId]
+    );
+}
+
 function runPageMintBundleJob({ payload, newsIds, placeholders }) {
     setImmediate(async () => {
+        let stage = 'rewrite';
         try {
+            markPageMintBundleRewriting(payload.job_id);
             const rewriteResult = await rewritePageMintBundle(payload);
+            markPageMintBundleRewriteResult(payload.job_id, rewriteResult.payload, rewriteResult.result);
+
+            stage = 'delivery';
+            markPageMintBundleDeliverySending(payload.job_id);
             const delivery = await sendNewspaperBundle(rewriteResult.payload);
+            markPageMintBundleDeliveryResult(payload.job_id, delivery);
             if (!delivery.delivered) {
                 console.error('Newspaper generator background delivery skipped:', delivery.error || 'not delivered');
                 return;
@@ -58,6 +147,7 @@ function runPageMintBundleJob({ payload, newsIds, placeholders }) {
                 rewritten: Boolean(rewriteResult.result?.rewritten)
             });
         } catch (err) {
+            markPageMintBundleFailed(payload.job_id, stage, err);
             console.error('Newspaper generator background bundle error:', err);
         }
     });
@@ -429,6 +519,7 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
             imagesByNewsId,
             baseUrl: getBaseUrl(req)
         });
+        insertPageMintBundleRecord({ targetUser, newsIds, payload });
         runPageMintBundleJob({ payload, newsIds, placeholders });
 
         res.json({

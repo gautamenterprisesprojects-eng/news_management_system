@@ -116,6 +116,20 @@ function deleteUploadedFile(fileUrl) {
 
 const CONTENT_RETENTION_HOURS = 48;
 const API_PDF_RETENTION_HOURS = 30;
+const PAGEMINT_BUNDLE_RETENTION_HOURS = 12;
+
+function cleanupOldPageMintBundles() {
+    try {
+        const { queryAll, queryRun } = require('./db/init');
+        const oldBundles = queryAll("SELECT id FROM pagemint_bundles WHERE datetime(created_at) < datetime('now', 'localtime', ?)", [`-${PAGEMINT_BUNDLE_RETENTION_HOURS} hours`]);
+        if (oldBundles.length > 0) {
+            queryRun("DELETE FROM pagemint_bundles WHERE datetime(created_at) < datetime('now', 'localtime', ?)", [`-${PAGEMINT_BUNDLE_RETENTION_HOURS} hours`]);
+            console.log(`Cleaned up ${oldBundles.length} old PageMint bundle records.`);
+        }
+    } catch (e) {
+        console.error('Error cleaning PageMint bundle records:', e);
+    }
+}
 
 // Background cron job: every hour, delete old NMS content and generated API PDFs.
 if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
@@ -163,6 +177,8 @@ if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
         console.error('Error in cleanup job:', e);
     }
 }, 60 * 60 * 1000); // 1 hour
+
+setInterval(cleanupOldPageMintBundles, 60 * 60 * 1000); // 1 hour
 
 // ============================================================
 // SPA FALLBACK — serve index.html for all non-API routes
