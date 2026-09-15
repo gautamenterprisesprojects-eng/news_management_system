@@ -1593,7 +1593,7 @@ function renderEditorApiScreen() {
                         </select>
                     </div>
                     <button class="btn btn-primary btn-sm" id="apiBundleSendBtn" onclick="sendApiNewspaperBundle()" disabled>
-                        📰 API बंडल भेजें (0)
+                        📰 AI rewritten खबरें PageMint भेजें (0)
                     </button>
                 </div>
                 <div id="apiBundleWaitStatus" class="api-bundle-wait hidden"></div>
@@ -1632,7 +1632,7 @@ async function loadApiTargets() {
                     <div style="font-size:0.9rem; color:var(--text-secondary); margin-top:4px;">
                         <strong>${t.role === 'sub_editor' ? 'Sub-Editor' : 'API Reporter'}</strong> <span style="margin: 0 6px;">•</span> ${escapeHtml(t.district || t.city || 'No City')}
                     </div>
-                    <div style="font-size:0.85rem; color:${count >= 7 ? 'var(--accent-green)' : 'var(--accent-orange)'}; margin-top:4px;">
+                    <div style="font-size:0.85rem; color:${count > 0 ? 'var(--accent-green)' : 'var(--accent-orange)'}; margin-top:4px;">
                         AI rewritten processed news: ${count}
                     </div>
                 </div>
@@ -1759,16 +1759,16 @@ function toggleSelectAllApiNews(checked) {
 function updateApiBundleToolbar() {
     const btn = document.getElementById('apiBundleSendBtn');
     if (!btn) return;
-    btn.disabled = _selectedApiNews.size < 7;
-    btn.textContent = `📰 API बंडल भेजें (${_selectedApiNews.size})`;
+    btn.disabled = _selectedApiNews.size < 1;
+    btn.textContent = `📰 AI rewritten खबरें PageMint भेजें (${_selectedApiNews.size})`;
 }
 
 async function sendApiNewspaperBundle() {
-    if (_selectedApiNews.size < 7) {
-        showToast('कम से कम 7 खबरें चुनें', 'error');
+    if (_selectedApiNews.size < 1) {
+        showToast('कम से कम 1 AI rewritten खबर चुनें', 'error');
         return;
     }
-    if (!confirm(`क्या आप ${_selectedApiNews.size} खबरों का बंडल न्यूज़पेपर जनरेटर को भेजना चाहते हैं?`)) return;
+    if (!confirm(`क्या आप ${_selectedApiNews.size} AI rewritten खबरों को PageMint PDF जनरेटर को भेजना चाहते हैं? बाकी खाली स्लॉट PageMint/Gautam API से भरे जा सकते हैं।`)) return;
 
     const btn = document.getElementById('apiBundleSendBtn');
     btn.disabled = true;
@@ -1786,7 +1786,7 @@ async function sendApiNewspaperBundle() {
         if (res.error) {
             showToast(res.error, 'error');
             btn.disabled = false;
-            btn.textContent = `📰 API बंडल भेजें (${_selectedApiNews.size})`;
+            btn.textContent = `📰 AI rewritten खबरें PageMint भेजें (${_selectedApiNews.size})`;
         } else {
             showToast(res.message, 'success');
             _selectedApiNews.clear();
@@ -1796,7 +1796,7 @@ async function sendApiNewspaperBundle() {
     } catch (err) {
         showToast(t('common.error'), 'error');
         btn.disabled = false;
-        btn.textContent = `📰 API बंडल भेजें (${_selectedApiNews.size})`;
+        btn.textContent = `📰 AI rewritten खबरें PageMint भेजें (${_selectedApiNews.size})`;
     }
 }
 

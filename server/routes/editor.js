@@ -439,8 +439,8 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
         if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
             return res.status(400).json({ error: 'Target selection is required.' });
         }
-        if (newsIds.length < 7) {
-            return res.status(400).json({ error: 'Select at least 7 processed news items for the newspaper generator.' });
+        if (newsIds.length < 1) {
+            return res.status(400).json({ error: 'Select at least 1 AI rewritten processed news item for the newspaper generator.' });
         }
 
         const targetUser = queryGet(`

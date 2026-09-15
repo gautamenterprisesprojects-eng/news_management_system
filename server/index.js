@@ -116,7 +116,7 @@ function deleteUploadedFile(fileUrl) {
 
 const CONTENT_RETENTION_HOURS = 48;
 const API_PDF_RETENTION_HOURS = 30;
-const PAGEMINT_BUNDLE_RETENTION_HOURS = 12;
+const PAGEMINT_BUNDLE_RETENTION_HOURS = 26;
 
 function cleanupOldPageMintBundles() {
     try {
