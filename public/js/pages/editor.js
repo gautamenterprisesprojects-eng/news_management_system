@@ -497,7 +497,7 @@ async function openRawNewsDetail(id) {
         `;
 
         let extraHtml = '';
-        if (news.images && news.images.length > 0) extraHtml += renderEditorImagePicker(news, id);
+        extraHtml += renderEditorImagePicker(news, id);
         extraHtml += renderRawNewsWordCount(news);
         if (hasRewrite) {
             extraHtml += `
@@ -546,9 +546,7 @@ async function openProcessedNewsDetail(id) {
                 <div class="raw-source-review-body">${escapeHtml(news.body)}</div>
             </div>
         `;
-        if (news.images && news.images.length > 0) {
-            extraHtml += renderEditorImagePicker(news, id);
-        }
+        extraHtml += renderEditorImagePicker(news, id);
 
         const actionsHtml = news.status === 'raw' ? `
             <button class="btn btn-success" style="flex:1;" onclick="approveNews(${id})">
@@ -590,9 +588,11 @@ async function openProcessedNewsDetail(id) {
     }
 }
 
+const EDITOR_MAX_NEWS_IMAGES = 10;
+
 function renderEditorImagePicker(news, id) {
     const images = news.images || [];
-    if (!images.length) return '';
+    const atLimit = images.length >= EDITOR_MAX_NEWS_IMAGES;
 
     return `
         <div class="editor-image-picker">
@@ -609,8 +609,84 @@ function renderEditorImagePicker(news, id) {
                     </div>
                 `).join('')}
             </div>
+            <div class="editor-image-add-row" style="margin-top: 10px;">
+                <input type="file" id="editorImageUpload-${id}" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,.jpg,.jpeg,.png,.webp" style="display:none" onchange="uploadEditorImages(${id}, this)">
+                <button type="button" class="btn btn-secondary btn-sm" ${atLimit ? 'disabled' : ''} onclick="document.getElementById('editorImageUpload-${id}').click()">
+                    ${icon('plus', 12)} फोटो जोड़ें (${images.length}/${EDITOR_MAX_NEWS_IMAGES})
+                </button>
+            </div>
         </div>
     `;
+}
+
+async function refreshEditorImagePickerInModal(newsId) {
+    try {
+        const news = await api(`/editor/news/${newsId}`);
+        if (news.error) return;
+        const picker = document.querySelector('.editor-image-picker');
+        if (!picker) return;
+        const replacement = document.createElement('div');
+        replacement.innerHTML = renderEditorImagePicker(news, newsId);
+        picker.replaceWith(replacement.firstElementChild);
+        initEditorImageSorter(newsId);
+        refreshIcons();
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    }
+}
+
+async function uploadEditorImages(newsId, inputEl) {
+    const files = inputEl?.files;
+    if (!files || files.length < 1) return;
+
+    const formData = new FormData();
+    for (const file of files) {
+        formData.append('images', file);
+    }
+
+    const addBtn = inputEl.parentElement?.querySelector('button');
+    const originalBtnHtml = addBtn?.innerHTML;
+    if (addBtn) {
+        addBtn.disabled = true;
+        addBtn.innerHTML = `${icon('loader', 12)} अपलोड...`;
+    }
+
+    try {
+        const result = await api(`/editor/news/${newsId}/images/upload`, {
+            method: 'POST',
+            body: formData,
+            isFormData: true
+        });
+
+        if (result.error) {
+            showToast(result.error, 'error');
+            return;
+        }
+
+        await refreshEditorImagePickerInModal(newsId);
+
+        const modalImg = document.querySelector('.modal-image');
+        if (modalImg && result.selected_image_path) {
+            modalImg.src = result.selected_image_path;
+            modalImg.style.display = '';
+        } else if (modalImg && !result.selected_image_path) {
+            modalImg.remove();
+        }
+
+        if (document.getElementById('rawNewsList')) loadRawNews();
+        if (document.getElementById('processedNewsList')) loadProcessedNews();
+        if (document.getElementById('forwardedNewsList')) loadForwardedNews();
+        showToast(result.message || 'फोटो जोड़ दी गई', 'success');
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    } finally {
+        inputEl.value = '';
+        if (addBtn) {
+            addBtn.disabled = false;
+            if (originalBtnHtml) addBtn.innerHTML = originalBtnHtml;
+            refreshIcons();
+        }
+    }
 }
 
 function countNewsWords(text) {
@@ -809,8 +885,7 @@ async function deleteEditorImage(newsId, imageId, buttonEl, event) {
             }
 
             if (!grid.querySelector('.editor-img-tile')) {
-                const picker = grid.closest('.editor-image-picker');
-                if (picker) picker.remove();
+                await refreshEditorImagePickerInModal(newsId);
             }
         }
 
@@ -1554,7 +1629,7 @@ async function openPublishedNewsDetail(id) {
 
         const hasImages = news.images && news.images.length > 0;
         let extraHtml = renderEditorExternalLinks(news);
-        if (hasImages) extraHtml = `${extraHtml}${renderEditorImagePicker(news, id)}`;
+        extraHtml = `${extraHtml}${renderEditorImagePicker(news, id)}`;
 
         const actionsHtml = `
             <button class="btn btn-danger" onclick="deleteNews(${id})">

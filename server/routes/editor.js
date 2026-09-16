@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
 const { queryAll, queryGet, queryRun } = require('../db/init');
 const { verifyToken, requireRole } = require('../middleware/auth');
 const { rewriteArticle } = require('../services/aiRewriter');
-const { resolveUpload } = require('../storage');
+const { resolveUpload, uploadsDir } = require('../storage');
 const { deliverForwardedNews, parseExternalNewsId } = require('../services/externalNews');
 const {
     buildNewspaperPayload,
@@ -16,6 +19,41 @@ const { rewriteAndCachePageMintBundle, queuePageMintRewriteForNews } = require('
 
 // All editor routes require editor role
 router.use(verifyToken, requireRole('editor'));
+
+const editorImageStorage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadsDir),
+    filename: (req, file, cb) => {
+        const extByMime = {
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/webp': '.webp',
+            'image/gif': '.gif',
+            'image/avif': '.avif',
+            'image/heic': '.heic',
+            'image/heif': '.heif'
+        };
+        const ext = path.extname(file.originalname) || extByMime[file.mimetype] || '';
+        cb(null, `${uuidv4()}${ext}`);
+    }
+});
+
+const editorImageUpload = multer({
+    storage: editorImageStorage,
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const allowed = ['.jpg', '.jpeg', '.jfif', '.png', '.webp', '.gif', '.avif', '.heic', '.heif'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if ((file.mimetype && file.mimetype.startsWith('image/')) || allowed.includes(ext)) {
+            cb(null, true);
+        } else {
+            const err = new Error('Only image files are allowed. Use JPG, PNG, WebP, GIF, AVIF, HEIC, or HEIF.');
+            err.statusCode = 400;
+            cb(err);
+        }
+    }
+});
+
+const MAX_NEWS_IMAGES = 10;
 
 function editorVisibleClause(filterValue, params) {
     if (filterValue === 'direct') return 'AND n.sub_editor_id IS NULL';
@@ -837,6 +875,76 @@ router.get('/news/:id/images', (req, res) => {
     } catch (err) {
         console.error('Editor get images error:', err);
         res.status(500).json({ error: 'Failed to fetch images.' });
+    }
+});
+
+/**
+ * POST /api/editor/news/:id/images/upload
+ * Append images to an existing article (max 10 total).
+ */
+router.post('/news/:id/images/upload', editorImageUpload.array('images', MAX_NEWS_IMAGES), (req, res) => {
+    try {
+        const newsId = req.params.id;
+        const news = queryGet('SELECT id, status, image_path, selected_image_path FROM news WHERE id = ?', [newsId]);
+        if (!news) {
+            return res.status(404).json({ error: 'News not found.' });
+        }
+        if (!['raw', 'processed', 'forwarded'].includes(news.status)) {
+            return res.status(400).json({ error: 'Images can only be added to raw, processed, or forwarded news.' });
+        }
+
+        const files = Array.isArray(req.files) ? req.files : [];
+        if (files.length < 1) {
+            return res.status(400).json({ error: 'Select at least one image to upload.' });
+        }
+
+        const existing = queryAll(
+            'SELECT id, is_selected FROM news_images WHERE news_id = ? ORDER BY sort_order ASC, id ASC',
+            [newsId]
+        );
+        if (existing.length + files.length > MAX_NEWS_IMAGES) {
+            return res.status(400).json({
+                error: `Maximum ${MAX_NEWS_IMAGES} photos per article. Currently ${existing.length}, tried to add ${files.length}.`
+            });
+        }
+
+        const hadCover = existing.some(row => row.is_selected)
+            || Boolean(news.selected_image_path || news.image_path);
+        let firstNewPath = null;
+
+        files.forEach((file, idx) => {
+            const imagePath = `/uploads/${file.filename}`;
+            if (!firstNewPath) firstNewPath = imagePath;
+            const sortOrder = existing.length + idx;
+            const isSelected = !hadCover && idx === 0 ? 1 : 0;
+            queryRun(
+                'INSERT INTO news_images (news_id, image_path, is_selected, sort_order) VALUES (?, ?, ?, ?)',
+                [newsId, imagePath, isSelected, sortOrder]
+            );
+        });
+
+        if (!hadCover && firstNewPath) {
+            queryRun(
+                'UPDATE news SET image_path = COALESCE(image_path, ?), selected_image_path = ? WHERE id = ?',
+                [firstNewPath, firstNewPath, newsId]
+            );
+        }
+
+        const images = queryAll(
+            'SELECT id, image_path, is_selected, sort_order FROM news_images WHERE news_id = ? ORDER BY sort_order ASC, id ASC',
+            [newsId]
+        );
+        const selected = images.find(img => img.is_selected) || images[0] || null;
+
+        res.json({
+            success: true,
+            message: `${files.length} photo(s) added.`,
+            images,
+            selected_image_path: selected?.image_path || news.selected_image_path || news.image_path || null
+        });
+    } catch (err) {
+        console.error('Editor upload images error:', err);
+        res.status(err.statusCode || 500).json({ error: err.message || 'Failed to upload images.' });
     }
 });
 
