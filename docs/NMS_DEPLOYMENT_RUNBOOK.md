@@ -8,8 +8,8 @@ Do not put passwords, private SSH keys, `.env` files, databases, or uploads in g
 
 | Service | URL / location | Notes |
 | --- | --- | --- |
-| Frontend | https://nms.thecliffnews.in | Vercel project `gautam-tech-studio/news-management-system` |
-| Backend API | https://nms-api.thecliffnews.in | Hostinger VPS, Nginx proxy, Docker container |
+| Frontend + API (VPS) | https://nms-api.thecliffnews.in | Hostinger VPS — Nginx → Docker `news-management-system-backend-1` on `127.0.0.1:3010` (serves `public/` and `/api`) |
+| Legacy hostname | https://nms.thecliffnews.in | Must point DNS (A record) to the VPS to use the same app; if DNS still targets Vercel, that copy will be stale |
 | GitHub repo | https://github.com/gautamenterprisesprojects-eng/news_management_system.git | Push to `main` only after local testing and approval |
 | VPS | `89.116.33.19` | Hostinger KVM 2, Ubuntu 24.04 LTS |
 
@@ -40,8 +40,8 @@ For every change batch:
 2. Run local syntax/API/browser checks that match the changed area.
 3. Ask the project owner before pushing.
 4. Push to GitHub only after approval.
-5. Wait for/check Vercel frontend deployment.
-6. Deploy the backend release to Hostinger only if backend files changed.
+5. Deploy the release to Hostinger (frontend static files live under `public/` in the same container mount as the API).
+6. Verify `https://nms-api.thecliffnews.in` (or `nms.thecliffnews.in` once DNS points to the VPS).
 7. Verify NMS health.
 8. Verify existing project baselines.
 
@@ -110,14 +110,14 @@ git commit -m "Describe the change"
 git push origin main
 ```
 
-Vercel deploys the frontend from GitHub. After the deployment finishes, verify:
+After `git push`, deploy the backend release on the VPS (see below). Verify:
 
 ```powershell
 Invoke-WebRequest https://nms.thecliffnews.in/api/health -UseBasicParsing
 Invoke-WebRequest https://nms.thecliffnews.in/images/logo-wide.png -UseBasicParsing
 ```
 
-The Vercel project must keep rewrites for backend API/upload traffic to `https://nms-api.thecliffnews.in`.
+If `nms.thecliffnews.in` should use the VPS app, set Cloudflare `nms` to **A → `89.116.33.19`** (DNS only), enable the Nginx vhost for that hostname, and run Certbot. Until then, use **`https://nms-api.thecliffnews.in`** for the current UI.
 
 ## Backend deployment from Windows
 
@@ -214,8 +214,7 @@ Cloudflare manages DNS for `thecliffnews.in`.
 
 | Name | Type | Target | Proxy |
 | --- | --- | --- | --- |
-| `nms` | CNAME | Vercel target shown in Vercel Domains page | DNS only |
-| `_vercel` | TXT | Vercel domain verification value | DNS only |
+| `nms` | A | `89.116.33.19` (same VPS app as `nms-api`; remove any Vercel CNAME) | DNS only |
 | `nms-api` | A | `89.116.33.19` | DNS only |
 
 Keep `nms-api` DNS-only unless the backend and Cloudflare SSL/proxy settings have been deliberately tested.
