@@ -6,7 +6,12 @@ const { verifyToken, requireRole } = require('../middleware/auth');
 const { rewriteArticle } = require('../services/aiRewriter');
 const { resolveUpload } = require('../storage');
 const { deliverForwardedNews, parseExternalNewsId } = require('../services/externalNews');
-const { buildNewspaperPayload, sendNewspaperBundle, getBaseUrl } = require('../services/newspaperGenerator');
+const {
+    buildNewspaperPayload,
+    sendNewspaperBundle,
+    getBaseUrl,
+    prepareArticlesForRawPageMint
+} = require('../services/newspaperGenerator');
 const { rewriteAndCachePageMintBundle, queuePageMintRewriteForNews } = require('../services/pageMintRewriteCache');
 
 // All editor routes require editor role
@@ -116,6 +121,99 @@ function markPageMintBundleFailed(jobId, stage, err) {
          WHERE job_id = ?`,
         [err.message || String(err), jobId]
     );
+}
+
+const PAGE_MINT_TARGET_USER_SQL = `
+    SELECT id, full_name, name_hi, name_en, post, district, city, role, is_api_enabled, print_designation, print_place_name, avatar_path
+    FROM users
+    WHERE id = ? AND status = 'active'
+`;
+
+const PAGE_MINT_ARTICLE_REPORTER_SQL = `
+    u.full_name as reporter_name, u.name_hi as reporter_name_hi, u.name_en as reporter_name_en,
+    u.post as reporter_designation, u.print_designation as reporter_print_designation,
+    u.print_place_name as reporter_print_place_name,
+    u.avatar_path as reporter_photo_url, u.city as reporter_city,
+    u.district as reporter_district
+`;
+
+function resolveRawNewsPageMintTarget(news) {
+    if (news.sub_editor_id && news.sub_editor_status === 'forwarded') {
+        const subEditor = queryGet(`${PAGE_MINT_TARGET_USER_SQL}`, [news.sub_editor_id]);
+        if (subEditor?.role === 'sub_editor') {
+            return subEditor;
+        }
+    }
+    const reporter = queryGet(`${PAGE_MINT_TARGET_USER_SQL}`, [news.reporter_id]);
+    if (reporter?.role === 'reporter' && reporter.is_api_enabled) {
+        return reporter;
+    }
+    if (news.sub_editor_id) {
+        const subEditor = queryGet(`${PAGE_MINT_TARGET_USER_SQL}`, [news.sub_editor_id]);
+        if (subEditor?.role === 'sub_editor') {
+            return subEditor;
+        }
+    }
+    return null;
+}
+
+function fetchRawNewsRowForPageMintTarget(newsId, targetUser) {
+    const base = `
+        SELECT n.*, ${PAGE_MINT_ARTICLE_REPORTER_SQL}
+        FROM news n
+        LEFT JOIN users u ON u.id = n.reporter_id
+        WHERE n.id = ?
+          AND n.status = 'raw'
+          AND TRIM(COALESCE(n.headline, '')) != ''
+          AND TRIM(COALESCE(n.body, '')) != ''
+    `;
+    if (targetUser.role === 'sub_editor') {
+        return queryGet(`${base} AND n.sub_editor_id = ?`, [newsId, targetUser.id]);
+    }
+    return queryGet(`${base} AND n.reporter_id = ?`, [newsId, targetUser.id]);
+}
+
+function runPageMintRawBundleJob({ payload, newsIds, placeholders }) {
+    setImmediate(async () => {
+        let stage = 'rewrite';
+        try {
+            markPageMintBundleRewriting(payload.job_id);
+            const rawPayload = {
+                ...payload,
+                meta: {
+                    ...(payload.meta || {}),
+                    schemaVersion: 'nms-pagemint-v2-raw-direct',
+                    pageMintAiRewrite: {
+                        enabled: false,
+                        rewritten: false,
+                        skipped: true,
+                        reason: 'raw-direct',
+                        skippedAt: new Date().toISOString()
+                    }
+                }
+            };
+            markPageMintBundleRewriteResult(payload.job_id, rawPayload, { rewritten: false });
+
+            stage = 'delivery';
+            markPageMintBundleDeliverySending(payload.job_id);
+            const delivery = await sendNewspaperBundle(rawPayload);
+            markPageMintBundleDeliveryResult(payload.job_id, delivery);
+            if (!delivery.delivered) {
+                console.error('Raw PageMint bundle delivery skipped:', delivery.error || 'not delivered');
+                return;
+            }
+
+            console.log('Raw PageMint bundle sent (no AI rewrite):', {
+                job_id: rawPayload.job_id,
+                bundle_id: rawPayload.bundle_id,
+                article_count: rawPayload.count,
+                news_ids: newsIds
+            });
+        } catch (err) {
+            markPageMintBundleFailed(payload.job_id, stage, err);
+            console.error('Raw PageMint bundle error:', err);
+        }
+    });
 }
 
 function runPageMintBundleJob({ targetUser, payload, newsIds, placeholders }) {
@@ -426,6 +524,93 @@ router.get('/api-targets/:id/pdfs', (req, res) => {
     } catch (err) {
         console.error('Editor get target PDFs error:', err);
         res.status(500).json({ error: 'Failed to fetch PDFs.' });
+    }
+});
+
+/**
+ * POST /api/editor/newspaper-generator/raw-bundle
+ * Sends raw headline/body + images to PageMint for the reporter or sub-editor tied to the story.
+ * Does not run AI rewrite and does not change news status.
+ */
+router.post('/newspaper-generator/raw-bundle', async (req, res) => {
+    try {
+        const newsIds = Array.isArray(req.body.news_ids)
+            ? req.body.news_ids.map(Number).filter(Number.isInteger)
+            : [Number(req.body.news_id)].filter(Number.isInteger);
+        if (newsIds.length < 1) {
+            return res.status(400).json({ error: 'news_id is required.' });
+        }
+
+        const newsRows = newsIds.map(id => queryGet('SELECT * FROM news WHERE id = ?', [id]));
+        if (newsRows.some(row => !row || row.status !== 'raw')) {
+            return res.status(400).json({ error: 'Only raw news can be sent with this action.' });
+        }
+
+        const targetUser = resolveRawNewsPageMintTarget(newsRows[0]);
+        if (!targetUser) {
+            return res.status(400).json({
+                error: 'No PageMint API target for this story. Enable API on the reporter or assign a sub-editor.'
+            });
+        }
+        const mismatchedTarget = newsRows.some(row => {
+            const rowTarget = resolveRawNewsPageMintTarget(row);
+            return !rowTarget || rowTarget.id !== targetUser.id;
+        });
+        if (mismatchedTarget) {
+            return res.status(400).json({ error: 'All selected raw news items must use the same PageMint API target.' });
+        }
+
+        if (targetUser.role === 'reporter' && !targetUser.is_api_enabled) {
+            return res.status(400).json({ error: 'Reporter is not API-enabled.' });
+        }
+
+        const articles = newsIds
+            .map(id => fetchRawNewsRowForPageMintTarget(id, targetUser))
+            .filter(Boolean);
+        if (articles.length !== newsIds.length) {
+            return res.status(400).json({ error: 'Some selected raw news items do not belong to the API target.' });
+        }
+
+        const placeholders = newsIds.map(() => '?').join(',');
+        const imageRows = queryAll(`
+            SELECT news_id, id, image_path, is_selected, sort_order
+            FROM news_images
+            WHERE news_id IN (${placeholders})
+            ORDER BY news_id ASC, sort_order ASC, id ASC
+        `, newsIds);
+        const imagesByNewsId = new Map();
+        for (const image of imageRows) {
+            if (!imagesByNewsId.has(image.news_id)) imagesByNewsId.set(image.news_id, []);
+            imagesByNewsId.get(image.news_id).push(image);
+        }
+
+        const payload = buildNewspaperPayload({
+            targetUser,
+            articles: prepareArticlesForRawPageMint(articles),
+            imagesByNewsId,
+            baseUrl: getBaseUrl(req)
+        });
+        payload.meta = {
+            ...(payload.meta || {}),
+            rawDirect: true,
+            source: 'NMS_RAW'
+        };
+
+        insertPageMintBundleRecord({ targetUser, newsIds, payload });
+        runPageMintRawBundleJob({ payload, newsIds, placeholders });
+
+        res.json({
+            success: true,
+            accepted: true,
+            message: 'Raw news bundle started. PageMint will receive the original headline, body, and images (no AI rewrite).',
+            job_id: payload.job_id,
+            bundle_id: payload.bundle_id,
+            target_user_id: targetUser.id,
+            target_name: targetUser.full_name
+        });
+    } catch (err) {
+        console.error('Raw newspaper generator bundle error:', err);
+        res.status(500).json({ error: `Raw PageMint send failed: ${err.message}` });
     }
 });
 

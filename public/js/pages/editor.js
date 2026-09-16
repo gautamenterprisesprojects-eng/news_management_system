@@ -368,6 +368,9 @@ function renderRawNewsCards() {
                 <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); showCustomRewriteModal(${n.id})">
                     ${icon('gear',12)} ${t('editor.rewrite_custom_btn')}
                 </button>
+                <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); sendRawNewsToPageMint(${n.id}, this)" title="बिना AI rewrite — मूल खबर PageMint API">
+                    ${icon('server',12)} PageMint API (Raw)
+                </button>
                 <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); promptRejectNews(${n.id})">
                     ${icon('x',12)} ${t('editor.reject_btn')}
                 </button>
@@ -1761,6 +1764,39 @@ function updateApiBundleToolbar() {
     if (!btn) return;
     btn.disabled = _selectedApiNews.size < 1;
     btn.textContent = `📰 AI rewritten खबरें PageMint भेजें (${_selectedApiNews.size})`;
+}
+
+async function sendRawNewsToPageMint(newsId, btn) {
+    if (!confirm('क्या आप इस RAW खबर को बिना AI rewrite के PageMint API जनरेटर में भेजना चाहते हैं? (मूल headline, body और images — reporter/sub-editor ID के साथ)')) {
+        return;
+    }
+
+    const button = btn || null;
+    const originalHtml = button?.innerHTML;
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'भेज रहा है...';
+    }
+
+    try {
+        const res = await api('/editor/newspaper-generator/raw-bundle', {
+            method: 'POST',
+            body: JSON.stringify({ news_id: newsId })
+        });
+
+        if (res.error) {
+            showToast(res.error, 'error');
+        } else {
+            showToast(res.message || 'Raw खबर PageMint को भेज दी गई', 'success');
+        }
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            if (originalHtml) button.innerHTML = originalHtml;
+        }
+    }
 }
 
 async function sendApiNewspaperBundle() {
