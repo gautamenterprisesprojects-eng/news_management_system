@@ -501,21 +501,26 @@ function editUserModal(id) {
                             <input type="text" class="form-input" id="editUserDistrict" value="${district}">
                         </div>
                     ` : ''}
-                    ${(role === 'reporter' || role === 'sub_editor') ? `
+                    ${role !== 'admin' ? `
                         <div class="form-group" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                            <p style="font-size:13px; font-weight:600; margin:0 0 10px;">Newspaper print profile (PageMint)</p>
+                            <div class="form-group">
+                                <label class="form-label">Print Designation (For Newspaper API)</label>
+                                <input type="text" class="form-input" id="editUserPrintDesignation" value="${escapeHtml(print_designation)}" placeholder="e.g. Bureau Chief / ब्यूरो चीफ">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Print Place Name (For Newspaper API)</label>
+                                <input type="text" class="form-input" id="editUserPrintPlaceName" value="${escapeHtml(print_place_name)}" placeholder="e.g. Bhopal, Ashoknagar">
+                                <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">Add or fix this anytime — sent to PageMint with photo and print designation.</p>
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${(role === 'reporter' || role === 'sub_editor') ? `
+                        <div class="form-group">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
                                 <input type="checkbox" id="editUserIsApiEnabled" ${is_api_enabled ? 'checked' : ''} style="width:16px; height:16px;">
                                 <strong>Enable API Newspaper Generation</strong>
                             </label>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Print Designation (For Newspaper API)</label>
-                            <input type="text" class="form-input" id="editUserPrintDesignation" value="${escapeHtml(print_designation)}" placeholder="e.g. Bureau Chief / ब्यूरो चीफ">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Print Place Name (For Newspaper API)</label>
-                            <input type="text" class="form-input" id="editUserPrintPlaceName" value="${escapeHtml(print_place_name)}" placeholder="e.g. Bhopal, Ashoknagar">
-                            <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">Sent to PageMint in the byline with photo and print designation.</p>
                         </div>
                     ` : ''}
                     <div class="form-group">
