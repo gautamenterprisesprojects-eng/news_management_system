@@ -510,9 +510,10 @@ router.get('/api-targets', (req, res) => {
 router.get('/api-targets/:id/news', (req, res) => {
     try {
         const targetId = Number(req.params.id);
-        const target = queryGet("SELECT role FROM users WHERE id = ? AND status = 'active'", [targetId]);
+        const target = queryGet("SELECT id, role FROM users WHERE id = ? AND status = 'active'", [targetId]);
         
         if (!target) return res.status(404).json({ error: 'Target not found.' });
+        target.id = target.id ?? targetId;
 
         let query = '';
         let params = [];
