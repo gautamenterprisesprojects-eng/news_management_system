@@ -1275,11 +1275,93 @@ select.form-input {
     }
 }
 
+.modal-image-wrap {
+    position: relative;
+}
+
 .modal-image {
     width: 100%;
     height: 240px;
     object-fit: cover;
     border-bottom: 1px solid #e2e8f0;
+    display: block;
+}
+
+.modal-image-crop-btn {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    border: none;
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(15, 23, 42, 0.82);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    z-index: 2;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.25);
+}
+
+.editor-img-crop-btn {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.88);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    z-index: 3;
+}
+
+.editor-crop-overlay {
+    z-index: 12000;
+}
+
+.editor-crop-card {
+    width: min(920px, 96vw);
+    max-height: 92vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.editor-crop-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.editor-crop-stage {
+    background: #0f172a;
+    max-height: min(68vh, 640px);
+    overflow: hidden;
+}
+
+.editor-crop-stage img {
+    display: block;
+    max-width: 100%;
+}
+
+.editor-crop-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    padding: 14px 16px;
+    border-top: 1px solid var(--border-color);
 }
 
 .modal-body {

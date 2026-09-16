@@ -14,6 +14,7 @@
  * @param {string} options.created_at
  * @param {string} options.actionsHtml - HTML for action buttons
  * @param {string} options.extraHtml - Additional HTML (badges, history) to render
+ * @param {{ newsId: number, imageId: number }|null} options.imageCrop - enable cover crop in modal
  */
 function showArticleModal(options) {
     const {
@@ -25,11 +26,19 @@ function showArticleModal(options) {
         reporter_name = '',
         created_at = '',
         actionsHtml = '',
-        extraHtml = ''
+        extraHtml = '',
+        imageCrop = null
     } = options;
 
     const imageHtml = image_path
-        ? `<img class="modal-image" src="${image_path}" alt="News Image" onerror="this.style.display='none'">`
+        ? `<div class="modal-image-wrap">
+                <img class="modal-image" src="${image_path}" alt="News Image" onerror="this.style.display='none'">
+                ${imageCrop?.newsId && imageCrop?.imageId ? `
+                    <button type="button" class="modal-image-crop-btn" onclick="openEditorImageCrop(${Number(imageCrop.newsId)}, ${Number(imageCrop.imageId)}, document.querySelector('#articleModal .modal-image').src)">
+                        ${icon('image', 14)} क्रॉप करें
+                    </button>
+                ` : ''}
+           </div>`
         : '';
 
     const metaItems = [];

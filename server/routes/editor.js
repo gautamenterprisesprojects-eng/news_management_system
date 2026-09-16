@@ -139,6 +139,27 @@ function markPageMintBundleDeliveryResult(jobId, delivery) {
     );
 }
 
+function countUploadPathReferences(imagePath) {
+    const imageRows = queryGet('SELECT COUNT(*) as c FROM news_images WHERE image_path = ?', [imagePath])?.c || 0;
+    const newsRows = queryGet(
+        'SELECT COUNT(*) as c FROM news WHERE image_path = ? OR selected_image_path = ?',
+        [imagePath, imagePath]
+    )?.c || 0;
+    return imageRows + newsRows;
+}
+
+function deleteUploadFileIfUnused(imagePath) {
+    if (!imagePath || !imagePath.startsWith('/uploads/')) return;
+    if (countUploadPathReferences(imagePath) > 0) return;
+    try {
+        fs.unlinkSync(resolveUpload(imagePath));
+    } catch (err) {
+        if (err.code !== 'ENOENT') {
+            console.warn('Could not delete unused upload:', imagePath, err.message);
+        }
+    }
+}
+
 function markPageMintBundleFailed(jobId, stage, err) {
     if (stage === 'rewrite') {
         queryRun(
@@ -1015,6 +1036,63 @@ router.post('/news/:id/images/select', (req, res) => {
     } catch (err) {
         console.error('Editor select image error:', err);
         res.status(500).json({ error: 'Failed to select image.' });
+    }
+});
+
+/**
+ * POST /api/editor/news/:id/images/:imageId/crop
+ * Replace an article image with an editor-cropped upload.
+ */
+router.post('/news/:id/images/:imageId/crop', editorImageUpload.single('image'), (req, res) => {
+    try {
+        const newsId = req.params.id;
+        const imageId = Number(req.params.imageId);
+        if (!Number.isInteger(imageId)) {
+            return res.status(400).json({ error: 'Invalid image id.' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ error: 'Cropped image file is required.' });
+        }
+
+        const news = queryGet('SELECT id, status, image_path, selected_image_path FROM news WHERE id = ?', [newsId]);
+        if (!news) return res.status(404).json({ error: 'News not found.' });
+        if (!['raw', 'processed', 'forwarded'].includes(news.status)) {
+            return res.status(400).json({ error: 'Images can only be cropped on raw, processed, or forwarded news.' });
+        }
+
+        const image = queryGet('SELECT id, image_path, is_selected FROM news_images WHERE id = ? AND news_id = ?', [imageId, newsId]);
+        if (!image) return res.status(404).json({ error: 'Image not found for this article.' });
+
+        const oldPath = image.image_path;
+        const newPath = `/uploads/${req.file.filename}`;
+
+        queryRun('UPDATE news_images SET image_path = ? WHERE id = ? AND news_id = ?', [newPath, imageId, newsId]);
+        if (news.image_path === oldPath) {
+            queryRun('UPDATE news SET image_path = ? WHERE id = ?', [newPath, newsId]);
+        }
+        if (news.selected_image_path === oldPath) {
+            queryRun('UPDATE news SET selected_image_path = ? WHERE id = ?', [newPath, newsId]);
+        }
+
+        deleteUploadFileIfUnused(oldPath);
+
+        const images = queryAll(
+            'SELECT id, image_path, is_selected, sort_order FROM news_images WHERE news_id = ? ORDER BY sort_order ASC, id ASC',
+            [newsId]
+        );
+        const selected = images.find(row => row.is_selected) || images[0] || null;
+
+        res.json({
+            success: true,
+            message: 'Cropped image saved.',
+            image_id: imageId,
+            image_path: newPath,
+            selected_image_path: selected?.image_path || news.selected_image_path || news.image_path || null,
+            images
+        });
+    } catch (err) {
+        console.error('Editor crop image error:', err);
+        res.status(err.statusCode || 500).json({ error: err.message || 'Failed to save cropped image.' });
     }
 });
 

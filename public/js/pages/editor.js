@@ -514,6 +514,7 @@ async function openRawNewsDetail(id) {
             headline: news.headline,
             body: news.body,
             image_path: news.selected_image_path || news.image_path,
+            imageCrop: getEditorCoverImageCrop(news, id),
             category: news.category,
             city: news.city,
             reporter_name: news.reporter_name,
@@ -575,6 +576,7 @@ async function openProcessedNewsDetail(id) {
             body: '',
             extraHtml: extraHtml,
             image_path: news.selected_image_path || news.image_path,
+            imageCrop: getEditorCoverImageCrop(news, id),
             category: news.category,
             city: news.city,
             reporter_name: news.reporter_name,
@@ -589,6 +591,20 @@ async function openProcessedNewsDetail(id) {
 }
 
 const EDITOR_MAX_NEWS_IMAGES = 10;
+let _editorCropperInstance = null;
+
+function bustImageUrl(url) {
+    if (!url) return url;
+    const base = String(url).split('?')[0];
+    return `${base}?t=${Date.now()}`;
+}
+
+function getEditorCoverImageCrop(news, newsId) {
+    const images = news.images || [];
+    const cover = images.find(img => img.is_selected) || images[0];
+    if (!cover) return null;
+    return { newsId: Number(newsId), imageId: Number(cover.id) };
+}
 
 function renderEditorImagePicker(news, id) {
     const images = news.images || [];
@@ -601,6 +617,9 @@ function renderEditorImagePicker(news, id) {
                 ${images.map((img, idx) => `
                     <div class="editor-img-tile ${img.is_selected ? 'selected' : ''}" data-image-id="${img.id}" tabindex="0" role="button" aria-label="Image ${idx + 1}">
                         <img src="${img.image_path}" alt="">
+                        <button class="editor-img-crop-btn" type="button" onclick="event.stopPropagation(); openEditorImageCropFromTile(${id}, ${img.id}, this)" aria-label="Crop image">
+                            ${icon('image', 12)}
+                        </button>
                         <button class="editor-img-delete-btn" type="button" onclick="deleteEditorImage(${id}, ${img.id}, this, event)" aria-label="Delete image">
                             ${icon('trash', 12)}
                         </button>
@@ -632,6 +651,149 @@ async function refreshEditorImagePickerInModal(newsId) {
         refreshIcons();
     } catch (err) {
         showToast(t('common.error'), 'error');
+    }
+}
+
+function closeEditorImageCropModal() {
+    if (_editorCropperInstance) {
+        _editorCropperInstance.destroy();
+        _editorCropperInstance = null;
+    }
+    const el = document.getElementById('editorImageCropModal');
+    if (el) el.remove();
+    document.body.style.overflow = document.getElementById('articleModal') ? 'hidden' : '';
+}
+
+function openEditorImageCropFromTile(newsId, imageId, buttonEl) {
+    const src = buttonEl?.closest('.editor-img-tile')?.querySelector('img')?.src;
+    if (!src) {
+        showToast('Image not found', 'error');
+        return;
+    }
+    openEditorImageCrop(newsId, imageId, src);
+}
+
+function openEditorImageCrop(newsId, imageId, imageUrl) {
+    if (typeof Cropper === 'undefined') {
+        showToast('Image crop tool is loading. Please refresh and try again.', 'error');
+        return;
+    }
+
+    closeEditorImageCropModal();
+    const safeUrl = bustImageUrl(imageUrl);
+
+    document.body.insertAdjacentHTML('beforeend', `
+        <div class="confirm-overlay editor-crop-overlay" id="editorImageCropModal" onclick="if(event.target === this) closeEditorImageCropModal()">
+            <div class="card editor-crop-card" onclick="event.stopPropagation()">
+                <div class="editor-crop-header">
+                    <strong>फोटो क्रॉप करें</strong>
+                    <button type="button" class="btn-icon" onclick="closeEditorImageCropModal()" aria-label="Close">✕</button>
+                </div>
+                <div class="editor-crop-stage">
+                    <img id="editorCropTargetImage" src="${safeUrl}" alt="Crop preview">
+                </div>
+                <div class="editor-crop-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeEditorImageCropModal()">${t('common.cancel')}</button>
+                    <button type="button" class="btn btn-primary" id="editorCropSaveBtn" onclick="saveEditorImageCrop(${newsId}, ${imageId})">
+                        ${icon('check', 14)} क्रॉप सेव करें
+                    </button>
+                </div>
+            </div>
+        </div>
+    `);
+
+    const img = document.getElementById('editorCropTargetImage');
+    const initCropper = () => {
+        if (_editorCropperInstance || !img) return;
+        _editorCropperInstance = new Cropper(img, {
+            viewMode: 1,
+            dragMode: 'move',
+            autoCropArea: 0.92,
+            responsive: true,
+            background: false,
+            zoomOnWheel: true
+        });
+    };
+    img.onload = initCropper;
+    if (img.complete) initCropper();
+}
+
+function applyCroppedImagesToEditorUi(newsId, result) {
+    const images = result.images || [];
+    const selectedPath = result.selected_image_path || null;
+
+    images.forEach(img => {
+        const tile = document.querySelector(`.editor-img-tile[data-image-id="${img.id}"]`);
+        const imgEl = tile?.querySelector('img');
+        if (imgEl) imgEl.src = bustImageUrl(img.image_path);
+    });
+
+    const modalImg = document.querySelector('#articleModal .modal-image');
+    if (modalImg && selectedPath) {
+        modalImg.src = bustImageUrl(selectedPath);
+        modalImg.style.display = '';
+    }
+}
+
+async function saveEditorImageCrop(newsId, imageId) {
+    if (!_editorCropperInstance) return;
+
+    const saveBtn = document.getElementById('editorCropSaveBtn');
+    const originalHtml = saveBtn?.innerHTML;
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = `${icon('loader', 14)} सेव...`;
+    }
+
+    try {
+        const canvas = _editorCropperInstance.getCroppedCanvas({
+            maxWidth: 2400,
+            maxHeight: 2400,
+            fillColor: '#ffffff',
+            imageSmoothingEnabled: true,
+            imageSmoothingQuality: 'high'
+        });
+        if (!canvas) {
+            showToast('क्रॉप एरिया चुनें', 'error');
+            return;
+        }
+
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+        if (!blob) {
+            showToast(t('common.error'), 'error');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('image', blob, `cropped-${imageId}.jpg`);
+
+        const result = await api(`/editor/news/${newsId}/images/${imageId}/crop`, {
+            method: 'POST',
+            body: formData,
+            isFormData: true
+        });
+
+        if (result.error) {
+            showToast(result.error, 'error');
+            return;
+        }
+
+        closeEditorImageCropModal();
+        applyCroppedImagesToEditorUi(newsId, result);
+        await refreshEditorImagePickerInModal(newsId);
+
+        if (document.getElementById('rawNewsList')) loadRawNews();
+        if (document.getElementById('processedNewsList')) loadProcessedNews();
+        if (document.getElementById('forwardedNewsList')) loadForwardedNews();
+        showToast(result.message || 'क्रॉप की गई फोटो सेव हो गई', 'success');
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            if (originalHtml) saveBtn.innerHTML = originalHtml;
+            refreshIcons();
+        }
     }
 }
 
@@ -763,7 +925,7 @@ function initEditorImageSorter(newsId) {
     let hasMoved = false;
 
     grid.addEventListener('pointerdown', (event) => {
-        if (event.target.closest('.editor-img-delete-btn')) return;
+        if (event.target.closest('.editor-img-delete-btn') || event.target.closest('.editor-img-crop-btn')) return;
         const tile = event.target.closest('.editor-img-tile');
         if (!tile || !grid.contains(tile)) return;
         draggedTile = tile;
