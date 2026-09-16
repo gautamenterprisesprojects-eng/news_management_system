@@ -37,7 +37,10 @@ const upload = multer({
 // Get current user profile
 router.get('/', verifyToken, (req, res) => {
     try {
-        const user = queryGet("SELECT id, username, full_name, name_hi, name_en, post, avatar_path, role, email, phone, city FROM users WHERE id = ?", [req.user.id]);
+        const user = queryGet(
+            "SELECT id, username, full_name, name_hi, name_en, post, avatar_path, role, email, phone, city, print_designation, print_place_name, is_api_enabled FROM users WHERE id = ?",
+            [req.user.id]
+        );
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
@@ -52,16 +55,36 @@ router.get('/', verifyToken, (req, res) => {
 // Update current user profile
 router.put('/', verifyToken, upload.single('avatar'), (req, res) => {
     try {
-        const { full_name, name_hi, name_en, post, email, phone, city } = req.body;
-        
-        let updateSql = "UPDATE users SET full_name = COALESCE(?, full_name), name_hi = ?, name_en = ?, post = ?, email = ?, phone = ?, city = ? WHERE id = ?";
+        const { full_name, name_hi, name_en, post, email, phone, city, print_designation, print_place_name } = req.body;
+
+        const printDesignationValue = print_designation !== undefined ? String(print_designation).trim() : undefined;
+        const printPlaceValue = print_place_name !== undefined ? String(print_place_name).trim() : undefined;
+
+        let updateSql = `UPDATE users SET full_name = COALESCE(?, full_name), name_hi = ?, name_en = ?, post = ?, email = ?, phone = ?, city = ? WHERE id = ?`;
         let params = [full_name, name_hi, name_en, post, email, phone, city, req.user.id];
+
+        if (printDesignationValue !== undefined) {
+            updateSql = updateSql.replace(' WHERE id = ?', ', print_designation = ? WHERE id = ?');
+            params.splice(params.length - 1, 0, printDesignationValue);
+        }
+        if (printPlaceValue !== undefined) {
+            updateSql = updateSql.replace(' WHERE id = ?', ', print_place_name = ? WHERE id = ?');
+            params.splice(params.length - 1, 0, printPlaceValue);
+        }
 
         let avatar_path = null;
         if (req.file) {
             avatar_path = '/uploads/avatars/' + req.file.filename;
-            updateSql = "UPDATE users SET full_name = COALESCE(?, full_name), name_hi = ?, name_en = ?, post = ?, email = ?, phone = ?, city = ?, avatar_path = ? WHERE id = ?";
+            updateSql = `UPDATE users SET full_name = COALESCE(?, full_name), name_hi = ?, name_en = ?, post = ?, email = ?, phone = ?, city = ?, avatar_path = ? WHERE id = ?`;
             params = [full_name, name_hi, name_en, post, email, phone, city, avatar_path, req.user.id];
+            if (printDesignationValue !== undefined) {
+                updateSql = updateSql.replace(' WHERE id = ?', ', print_designation = ? WHERE id = ?');
+                params.splice(params.length - 1, 0, printDesignationValue);
+            }
+            if (printPlaceValue !== undefined) {
+                updateSql = updateSql.replace(' WHERE id = ?', ', print_place_name = ? WHERE id = ?');
+                params.splice(params.length - 1, 0, printPlaceValue);
+            }
             
             // Delete old avatar if exists
             const oldUser = queryGet("SELECT avatar_path FROM users WHERE id = ?", [req.user.id]);
@@ -75,7 +98,10 @@ router.put('/', verifyToken, upload.single('avatar'), (req, res) => {
 
         queryRun(updateSql, params);
         
-        const updatedUser = queryGet("SELECT id, username, full_name, name_hi, name_en, post, avatar_path, role, email, phone, city FROM users WHERE id = ?", [req.user.id]);
+        const updatedUser = queryGet(
+            "SELECT id, username, full_name, name_hi, name_en, post, avatar_path, role, email, phone, city, print_designation, print_place_name, is_api_enabled FROM users WHERE id = ?",
+            [req.user.id]
+        );
         res.json({ success: true, profile: updatedUser });
     } catch (err) {
         console.error('Error updating profile:', err);

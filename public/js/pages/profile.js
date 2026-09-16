@@ -75,6 +75,20 @@ async function renderProfile() {
                                 <input type="text" id="prof_city" class="form-input" placeholder="City / District">
                             </div>
 
+                            <div id="profNewspaperApiSection" style="display: none; border-top: 1px solid var(--border-color); padding-top: 16px; margin-top: 4px;">
+                                <p style="font-size: 13px; color: var(--text-secondary); margin: 0 0 12px;">Newspaper API (PageMint byline — photo, designation, and place)</p>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+                                    <div class="form-group">
+                                        <label>Print Designation (For Newspaper API)</label>
+                                        <input type="text" id="prof_print_designation" class="form-input" placeholder="e.g. Bureau Chief / ब्यूरो चीफ">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Print Place Name (For Newspaper API)</label>
+                                        <input type="text" id="prof_print_place_name" class="form-input" placeholder="e.g. Bhopal, Ashoknagar">
+                                    </div>
+                                </div>
+                            </div>
+
                             <div style="margin-top: 16px; display: flex; gap: 12px; justify-content: flex-end;">
                                 <button type="button" class="btn btn-secondary" onclick="history.back()">← वापस</button>
                                 <button type="submit" id="profSaveBtn" class="btn btn-primary" style="min-width: 150px;">
@@ -119,6 +133,16 @@ async function loadProfileData() {
             document.getElementById('prof_email').value = currentProfile.email || '';
             document.getElementById('prof_phone').value = currentProfile.phone || '';
             document.getElementById('prof_city').value = currentProfile.city || '';
+
+            const apiSection = document.getElementById('profNewspaperApiSection');
+            const showApiFields = currentProfile.role === 'reporter' || currentProfile.role === 'sub_editor';
+            if (apiSection) {
+                apiSection.style.display = showApiFields ? 'block' : 'none';
+            }
+            if (showApiFields) {
+                document.getElementById('prof_print_designation').value = currentProfile.print_designation || '';
+                document.getElementById('prof_print_place_name').value = currentProfile.print_place_name || '';
+            }
         }
     } catch (err) {
         showToast(t('common.error'), 'error');
@@ -183,6 +207,17 @@ async function saveProfile(e) {
     formData.append('email', document.getElementById('prof_email').value.trim());
     formData.append('phone', document.getElementById('prof_phone').value.trim());
     formData.append('city', document.getElementById('prof_city').value.trim());
+
+    const printDesignationEl = document.getElementById('prof_print_designation');
+    const printPlaceEl = document.getElementById('prof_print_place_name');
+    if (
+        printDesignationEl &&
+        printPlaceEl &&
+        (currentProfile.role === 'reporter' || currentProfile.role === 'sub_editor')
+    ) {
+        formData.append('print_designation', printDesignationEl.value.trim());
+        formData.append('print_place_name', printPlaceEl.value.trim());
+    }
 
     const avatarInput = document.getElementById('profileAvatarInput');
     if (avatarInput.files && avatarInput.files[0]) {

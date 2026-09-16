@@ -749,7 +749,7 @@ router.post('/news/:id/rewrite', async (req, res) => {
 
         // Fetch reporter's profile for byline
         const reporter = queryGet(
-            'SELECT full_name, name_hi, name_en, post FROM users WHERE id = ?',
+            'SELECT full_name, name_hi, name_en, post, print_designation, print_place_name, city FROM users WHERE id = ?',
             [news.reporter_id]
         );
 
@@ -757,8 +757,8 @@ router.post('/news/:id/rewrite', async (req, res) => {
         const reporterName = language === 'hi'
             ? (reporter?.name_hi || reporter?.full_name || '')
             : (reporter?.name_en || reporter?.full_name || '');
-        const reporterPost = reporter?.post || '';
-        const city = news.city || '';
+        const reporterPost = reporter?.print_designation || reporter?.post || '';
+        const city = news.city || reporter?.print_place_name || reporter?.city || '';
 
         // Update status to processing
         queryRun('UPDATE news SET status = ? WHERE id = ?', ['processing', news.id]);

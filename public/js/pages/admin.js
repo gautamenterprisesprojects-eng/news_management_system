@@ -510,11 +510,11 @@ function editUserModal(id) {
                         </div>
                         <div class="form-group">
                             <label class="form-label">Print Designation (For Newspaper API)</label>
-                            <input type="text" class="form-input" id="editUserPrintDesignation" value="${print_designation}">
+                            <input type="text" class="form-input" id="editUserPrintDesignation" value="${escapeHtml(print_designation)}" placeholder="e.g. Bureau Chief / ब्यूरो चीफ">
                         </div>
                         <div class="form-group">
                             <label class="form-label">Print Place Name (For Newspaper API)</label>
-                            <input type="text" class="form-input" id="editUserPrintPlaceName" value="${escapeHtml(print_place_name)}">
+                            <input type="text" class="form-input" id="editUserPrintPlaceName" value="${escapeHtml(print_place_name)}" placeholder="e.g. Bhopal, Ashoknagar">
                             <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">Sent to PageMint in the byline with photo and print designation.</p>
                         </div>
                     ` : ''}
