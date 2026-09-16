@@ -172,14 +172,14 @@ async function rewriteAndCachePageMintBundle({ targetUser, payload }) {
 function getTargetUserForNews(news) {
     if (news.sub_editor_id && news.sub_editor_status === 'forwarded') {
         return queryGet(`
-            SELECT id, full_name, name_hi, name_en, post, district, city, role, is_api_enabled, print_designation, avatar_path
+            SELECT id, full_name, name_hi, name_en, post, district, city, role, is_api_enabled, print_designation, print_place_name, avatar_path
             FROM users
             WHERE id = ? AND role = 'sub_editor' AND status = 'active'
         `, [news.sub_editor_id]);
     }
 
     return queryGet(`
-        SELECT id, full_name, name_hi, name_en, post, district, city, role, is_api_enabled, print_designation, avatar_path
+        SELECT id, full_name, name_hi, name_en, post, district, city, role, is_api_enabled, print_designation, print_place_name, avatar_path
         FROM users
         WHERE id = ? AND role = 'reporter' AND is_api_enabled = 1 AND status = 'active'
     `, [news.reporter_id]);
@@ -189,6 +189,7 @@ function getPageMintArticleSource(newsId) {
     return queryGet(`
         SELECT n.*, u.full_name as reporter_name, u.name_hi as reporter_name_hi, u.name_en as reporter_name_en,
                u.post as reporter_designation, u.print_designation as reporter_print_designation,
+               u.print_place_name as reporter_print_place_name,
                u.avatar_path as reporter_photo_url, u.city as reporter_city,
                u.district as reporter_district
         FROM news n

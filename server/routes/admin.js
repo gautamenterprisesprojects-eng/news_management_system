@@ -43,7 +43,7 @@ function userSelectSql() {
     return `
         SELECT u.id, u.username, u.full_name, u.role, u.status, u.created_at,
                u.post, u.name_hi, u.name_en, u.city, u.district, u.assigned_sub_editor_id,
-               u.is_api_enabled, u.print_designation,
+               u.is_api_enabled, u.print_designation, u.print_place_name, u.avatar_path,
                se.full_name as assigned_sub_editor_name,
                se.name_hi as assigned_sub_editor_name_hi
         FROM users u
@@ -163,12 +163,13 @@ router.post('/users', (req, res) => {
         }
 
         const printDesignation = req.body.print_designation || '';
+        const printPlaceName = req.body.print_place_name || '';
 
         const hash = bcrypt.hashSync(password, 10);
         const result = queryRun(
             `INSERT INTO users
-             (username, password_hash, full_name, role, created_by, post, name_hi, name_en, city, district, assigned_sub_editor_id, assigned_editor_id, is_api_enabled, print_designation)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             (username, password_hash, full_name, role, created_by, post, name_hi, name_en, city, district, assigned_sub_editor_id, assigned_editor_id, is_api_enabled, print_designation, print_place_name)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 username,
                 hash,
@@ -183,7 +184,8 @@ router.post('/users', (req, res) => {
                 assignedSubEditorId,
                 assignedEditorId,
                 isApiEnabled,
-                printDesignation
+                printDesignation,
+                printPlaceName
             ]
         );
 
@@ -254,6 +256,9 @@ router.put('/users/:id', (req, res) => {
         }
         if (req.body.print_designation !== undefined) {
             queryRun('UPDATE users SET print_designation = ? WHERE id = ?', [req.body.print_designation, id]);
+        }
+        if (req.body.print_place_name !== undefined) {
+            queryRun('UPDATE users SET print_place_name = ? WHERE id = ?', [req.body.print_place_name, id]);
         }
 
         res.json({ message: 'User updated successfully.' });

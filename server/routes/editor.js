@@ -444,7 +444,7 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
         }
 
         const targetUser = queryGet(`
-            SELECT id, full_name, name_hi, name_en, post, district, city, role, is_api_enabled, print_designation, avatar_path
+            SELECT id, full_name, name_hi, name_en, post, district, city, role, is_api_enabled, print_designation, print_place_name, avatar_path
             FROM users
             WHERE id = ? AND status = 'active'
         `, [targetUserId]);
@@ -461,6 +461,7 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
             articles = queryAll(`
               SELECT n.*, u.full_name as reporter_name, u.name_hi as reporter_name_hi, u.name_en as reporter_name_en,
                   u.post as reporter_designation, u.print_designation as reporter_print_designation,
+                  u.print_place_name as reporter_print_place_name,
                   u.avatar_path as reporter_photo_url, u.city as reporter_city,
                   u.district as reporter_district
                 FROM news n
@@ -478,6 +479,7 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
             articles = queryAll(`
               SELECT n.*, u.full_name as reporter_name, u.name_hi as reporter_name_hi, u.name_en as reporter_name_en,
                   u.post as reporter_designation, u.print_designation as reporter_print_designation,
+                  u.print_place_name as reporter_print_place_name,
                   u.avatar_path as reporter_photo_url, u.city as reporter_city,
                   u.district as reporter_district
                 FROM news n

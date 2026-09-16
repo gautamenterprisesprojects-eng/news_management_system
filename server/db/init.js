@@ -33,6 +33,7 @@ function migrateUsersRoleConstraint() {
                 assigned_editor_id INTEGER,
                 is_api_enabled INTEGER DEFAULT 0,
                 print_designation TEXT,
+                print_place_name TEXT,
                 role TEXT NOT NULL CHECK(role IN ('admin', 'editor', 'reporter', 'operator', 'sub_editor', 'ad_manager')),
                 status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
                 created_by INTEGER,
@@ -44,7 +45,7 @@ function migrateUsersRoleConstraint() {
         const copyColumns = [
             'id', 'username', 'password_hash', 'full_name', 'name_hi', 'name_en', 'post',
             'avatar_path', 'email', 'phone', 'city', 'district', 'assigned_sub_editor_id',
-            'assigned_editor_id', 'is_api_enabled', 'print_designation',
+            'assigned_editor_id', 'is_api_enabled', 'print_designation', 'print_place_name',
             'role', 'status', 'created_by', 'created_at'
         ].filter(name => oldColumns.has(name));
 
@@ -84,6 +85,7 @@ async function initDatabase() {
             assigned_editor_id INTEGER,
             is_api_enabled INTEGER DEFAULT 0,
             print_designation TEXT,
+            print_place_name TEXT,
             role TEXT NOT NULL CHECK(role IN ('admin', 'editor', 'reporter', 'operator', 'sub_editor', 'ad_manager')),
             status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
             created_by INTEGER,
@@ -221,6 +223,7 @@ async function initDatabase() {
             assigned_editor_id: 'INTEGER',
             is_api_enabled: 'INTEGER DEFAULT 0',
             print_designation: 'TEXT',
+            print_place_name: 'TEXT',
             name_hi: 'TEXT',
             name_en: 'TEXT',
             post: 'TEXT'

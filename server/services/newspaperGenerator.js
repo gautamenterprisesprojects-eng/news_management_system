@@ -137,11 +137,17 @@ function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex })
     const formattedBody = article.body_rewritten == null ? safeString(article.body) : String(article.body_rewritten);
     const mainBody = safeString(article.body);
     const language = detectLanguage(`${title}\n${formattedBody}`);
-    const subheadings = extractPageMintSubheadings(article.body_rewritten);
+    const extractedSubheadings = extractPageMintSubheadings(article.body_rewritten);
+    const storedSubheadings = (Array.isArray(article.subheadings) ? article.subheadings : [])
+        .map(safeString)
+        .filter(Boolean);
+    const subheadings = storedSubheadings.length > 0 ? storedSubheadings : extractedSubheadings;
     const place = safeString(article.city || article.reporter_city || article.reporter_district);
     const reporterName = getReporterValue(article, language, 'name') || safeString(article.reporter_name);
     const reporterDesignation = safeString(article.reporter_print_designation || article.reporter_designation);
-    const reporterPlace = safeString(article.reporter_city || article.reporter_district || place);
+    const reporterPlace = safeString(
+        article.reporter_print_place_name || article.reporter_city || article.reporter_district || place
+    );
     const reporterPhotoUrl = toAbsoluteUrlOrNull(article.reporter_photo_url, baseUrl);
     const byline = buildPageMintByline({
         name: reporterName,
@@ -175,12 +181,14 @@ function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex })
         designation: reporterDesignation,
         photoUrl: reporterPhotoUrl,
         place: reporterPlace,
+        printPlaceName: safeString(article.reporter_print_place_name),
+        printDesignation: reporterDesignation,
         city: safeString(article.reporter_city),
         district: safeString(article.reporter_district)
     };
     const languageObject = {
         title,
-        secondary_headline: subheadings[0] || '',
+        secondary_headline: safeString(article.subheadline || article.secondary_headline) || subheadings[0] || '',
         category: safeString(article.category),
         short_250: shortBody,
         medium_500: mediumBody,
@@ -214,7 +222,7 @@ function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex })
         title,
         kicker: '',
         subheadings: [...subheadings],
-        subheadline: subheadings[0] || '',
+        subheadline: safeString(article.subheadline || article.secondary_headline) || subheadings[0] || '',
         body: formattedBody,
         pageMintBody: formattedBody,
         formattedBody,
@@ -250,7 +258,7 @@ function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex })
         ui_english: language === 'en' ? languageObject : emptyLanguageObject,
         article: {
             headline: title,
-            secondary_headline: subheadings[0] || '',
+            secondary_headline: safeString(article.subheadline || article.secondary_headline) || subheadings[0] || '',
             category: safeString(article.category),
             image_caption: imageCaption,
             image_url: imageUrl,
@@ -310,8 +318,10 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }
             nameEn: targetUser.name_en || targetUser.full_name || '',
             fullName: targetUser.full_name || '',
             post: targetUser.print_designation || targetUser.post || '',
+            printDesignation: targetUser.print_designation || targetUser.post || '',
+            printPlaceName: targetUser.print_place_name || '',
             district: targetUser.district || targetUser.city || '',
-            place: targetUser.district || targetUser.city || '',
+            place: targetUser.print_place_name || targetUser.district || targetUser.city || '',
             avatarUrl: toAbsoluteUrl(targetUser.avatar_path, baseUrl)
         },
 

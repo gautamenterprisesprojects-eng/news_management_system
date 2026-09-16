@@ -5,6 +5,8 @@
 let adminTab = 'dashboard';
 let adminUserFilter = 'all';
 let adminSubEditors = [];
+/** Latest user list from GET /admin/users — used when opening the edit modal (incl. avatar_path). */
+let adminUsersCache = [];
 
 function renderAdmin() {
     const app = document.getElementById('app');
@@ -253,6 +255,11 @@ async function handleNewUserRoleChange() {
                 <label class="form-label">Print Designation (For Newspaper API)</label>
                 <input type="text" class="form-input" id="newUserPrintDesignation" placeholder="e.g. Special Correspondent">
             </div>
+            <div class="form-group">
+                <label class="form-label">Print Place Name (For Newspaper API)</label>
+                <input type="text" class="form-input" id="newUserPrintPlaceName" placeholder="e.g. Bhopal, Ashoknagar">
+                <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">Shown in the PageMint byline after designation (separate from internal city/district).</p>
+            </div>
         `;
     }
 }
@@ -273,12 +280,14 @@ async function createUser() {
     const assignedTargetEl = document.getElementById('newUserAssignedTarget');
     const isApiEnabledEl = document.getElementById('newUserIsApiEnabled');
     const printDesignationEl = document.getElementById('newUserPrintDesignation');
+    const printPlaceNameEl = document.getElementById('newUserPrintPlaceName');
 
     const district = districtEl ? districtEl.value.trim() : '';
     const name_en = nameEnEl ? nameEnEl.value.trim() : '';
     const assigned_editor_id = assignedEditorEl ? assignedEditorEl.value : null;
     const is_api_enabled = isApiEnabledEl ? (isApiEnabledEl.checked ? 1 : 0) : 0;
     const print_designation = printDesignationEl ? printDesignationEl.value.trim() : '';
+    const print_place_name = printPlaceNameEl ? printPlaceNameEl.value.trim() : '';
     
     let assigned_sub_editor_id = null;
     let final_assigned_editor_id = assigned_editor_id;
@@ -308,7 +317,8 @@ async function createUser() {
                 assigned_editor_id: final_assigned_editor_id,
                 assigned_sub_editor_id,
                 is_api_enabled,
-                print_designation
+                print_designation,
+                print_place_name
             })
         });
 
@@ -350,6 +360,7 @@ async function loadUsers() {
         const query = adminUserFilter === 'all' ? '' : `?role=${adminUserFilter}`;
         const data = await api(`/admin/users${query}`);
         const users = (data.users || []).filter(u => u.role !== 'admin');
+        adminUsersCache = users;
 
         if (users.length === 0) {
             container.innerHTML = `
@@ -362,16 +373,20 @@ async function loadUsers() {
             return;
         }
 
-        container.innerHTML = users.map(u => `
+        container.innerHTML = users.map(u => {
+            const listAvatar = u.avatar_path
+                ? `<img src="${escapeHtml(u.avatar_path)}" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">`
+                : `<div class="user-avatar ${u.role}">${u.full_name.charAt(0).toUpperCase()}</div>`;
+            return `
             <div class="user-list-item">
-                <div class="user-avatar ${u.role}">${u.full_name.charAt(0).toUpperCase()}</div>
+                ${listAvatar}
                 <div class="user-info">
                     <div class="name">${escapeHtml(u.full_name)}${u.name_hi ? ` <span style="font-size:0.85em; color:var(--text-secondary); font-weight:normal;">(${escapeHtml(u.name_hi)})</span>` : ''}</div>
                     <div class="username">@${u.username} · ${u.role}${u.post ? ` · ${escapeHtml(u.post)}` : ''}</div>
                 </div>
                 <div class="user-status ${u.status}" title="${u.status}"></div>
                 <div class="flex gap-sm mt-2">
-                    <button class="btn btn-ghost btn-sm" onclick="editUserModal(${u.id}, '${escapeHtml(u.full_name)}', '${u.status}', '${escapeHtml(u.post || '')}', '${escapeHtml(u.name_hi || '')}', '${escapeHtml(u.name_en || '')}', '${escapeHtml(u.district || '')}', '${u.role}', ${u.is_api_enabled || 0}, '${escapeHtml(u.print_designation || '')}')">
+                    <button class="btn btn-ghost btn-sm" onclick="editUserModal(${u.id})">
                         ✏️
                     </button>
                     ${u.status === 'active'
@@ -380,13 +395,83 @@ async function loadUsers() {
                     }
                 </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
     }
 }
 
-function editUserModal(id, name, status, post = '', name_hi = '', name_en = '', district = '', role = '', is_api_enabled = 0, print_designation = '') {
+function setEditUserAvatarPreview(avatarPath, displayName, pendingFileLabel) {
+    const img = document.getElementById('editUserAvatarPreview');
+    const initials = document.getElementById('editUserAvatarInitials');
+    const status = document.getElementById('editUserAvatarStatus');
+    if (!img || !initials || !status) return;
+
+    const letter = (displayName || '?').charAt(0).toUpperCase();
+    initials.textContent = letter;
+
+    if (pendingFileLabel) {
+        status.textContent = pendingFileLabel;
+        status.style.color = 'var(--accent-orange, #e67e22)';
+        return;
+    }
+
+    if (avatarPath) {
+        img.src = avatarPath + (avatarPath.includes('?') ? '&' : '?') + 't=' + Date.now();
+        img.style.display = 'block';
+        initials.style.display = 'none';
+        status.textContent = 'Profile photo saved. Choose a new file below to replace it.';
+        status.style.color = 'var(--accent-green, #27ae60)';
+    } else {
+        img.style.display = 'none';
+        img.removeAttribute('src');
+        initials.style.display = 'flex';
+        status.textContent = 'No profile photo yet. Upload PNG or WebP for best print results (transparent background).';
+        status.style.color = 'var(--text-muted)';
+    }
+}
+
+function handleEditUserAvatarChange(input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    const nameEl = document.getElementById('editUserName');
+    const displayName = nameEl ? nameEl.value.trim() : '';
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const img = document.getElementById('editUserAvatarPreview');
+        const initials = document.getElementById('editUserAvatarInitials');
+        const status = document.getElementById('editUserAvatarStatus');
+        if (img) {
+            img.src = e.target.result;
+            img.style.display = 'block';
+        }
+        if (initials) initials.style.display = 'none';
+        if (status) {
+            status.textContent = `New photo selected: ${file.name} — click Update to save.`;
+            status.style.color = 'var(--accent-orange, #e67e22)';
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+function editUserModal(id) {
+    const u = adminUsersCache.find((row) => Number(row.id) === Number(id));
+    if (!u) {
+        showToast(t('common.error'), 'error');
+        return;
+    }
+    const name = u.full_name || '';
+    const post = u.post || '';
+    const name_hi = u.name_hi || '';
+    const name_en = u.name_en || '';
+    const district = u.district || '';
+    const role = u.role || '';
+    const is_api_enabled = u.is_api_enabled || 0;
+    const print_designation = u.print_designation || '';
+    const print_place_name = u.print_place_name || '';
+    const avatar_path = u.avatar_path || '';
+
     const html = `
         <div class="modal-overlay" id="articleModal" onclick="closeModalOutside(event)">
             <div class="modal-content" onclick="event.stopPropagation()" style="max-height:90vh; overflow-y:auto;">
@@ -427,6 +512,11 @@ function editUserModal(id, name, status, post = '', name_hi = '', name_en = '', 
                             <label class="form-label">Print Designation (For Newspaper API)</label>
                             <input type="text" class="form-input" id="editUserPrintDesignation" value="${print_designation}">
                         </div>
+                        <div class="form-group">
+                            <label class="form-label">Print Place Name (For Newspaper API)</label>
+                            <input type="text" class="form-input" id="editUserPrintPlaceName" value="${escapeHtml(print_place_name)}">
+                            <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">Sent to PageMint in the byline with photo and print designation.</p>
+                        </div>
                     ` : ''}
                     <div class="form-group">
                         <label class="form-label" data-i18n="admin.new_password">${t('admin.new_password')}</label>
@@ -434,7 +524,12 @@ function editUserModal(id, name, status, post = '', name_hi = '', name_en = '', 
                     </div>
                     <div class="form-group" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
                         <label class="form-label">Profile Photo (Admin Upload)</label>
-                        <input type="file" class="form-input" id="editUserAvatar" accept="image/*">
+                        <div style="display:flex; align-items:center; gap:12px; margin:10px 0;">
+                            <img id="editUserAvatarPreview" alt="" style="width:72px; height:72px; border-radius:50%; object-fit:cover; border:2px solid var(--border-color); display:none;">
+                            <div id="editUserAvatarInitials" class="user-avatar ${role}" style="width:72px; height:72px; font-size:28px; flex-shrink:0;"></div>
+                            <p id="editUserAvatarStatus" style="font-size:13px; margin:0; flex:1;"></p>
+                        </div>
+                        <input type="file" class="form-input" id="editUserAvatar" accept="image/*" onchange="handleEditUserAvatarChange(this)">
                         <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">Upload an image to set or update this user's profile photo.</p>
                     </div>
                     <button class="btn btn-primary btn-full mt-4" onclick="updateUser(${id}, '${role}')" data-i18n="admin.update_btn">${t('admin.update_btn')}</button>
@@ -446,6 +541,7 @@ function editUserModal(id, name, status, post = '', name_hi = '', name_en = '', 
     document.body.insertAdjacentHTML('beforeend', html);
     document.body.style.overflow = ''; // Let modal scroll
     applyLanguage();
+    setEditUserAvatarPreview(avatar_path, name);
 }
 
 async function updateUser(id, role) {
@@ -458,6 +554,7 @@ async function updateUser(id, role) {
     const districtEl = document.getElementById('editUserDistrict');
     const isApiEnabledEl = document.getElementById('editUserIsApiEnabled');
     const printDesignationEl = document.getElementById('editUserPrintDesignation');
+    const printPlaceNameEl = document.getElementById('editUserPrintPlaceName');
 
     const body = {};
     if (full_name) body.full_name = full_name;
@@ -468,6 +565,7 @@ async function updateUser(id, role) {
     if (districtEl) body.district = districtEl.value.trim();
     if (isApiEnabledEl) body.is_api_enabled = isApiEnabledEl.checked ? 1 : 0;
     if (printDesignationEl) body.print_designation = printDesignationEl.value.trim();
+    if (printPlaceNameEl) body.print_place_name = printPlaceNameEl.value.trim();
 
     try {
         const data = await api(`/admin/users/${id}`, {
@@ -493,6 +591,9 @@ async function updateUser(id, role) {
             const avatarData = await avatarRes.json();
             if (avatarData.error) {
                 showToast(avatarData.error, 'error');
+            } else if (avatarData.avatar_path) {
+                const cached = adminUsersCache.find((row) => Number(row.id) === Number(id));
+                if (cached) cached.avatar_path = avatarData.avatar_path;
             }
         }
 
