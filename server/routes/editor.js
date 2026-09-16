@@ -173,6 +173,63 @@ function fetchRawNewsRowForPageMintTarget(newsId, targetUser) {
     return queryGet(`${base} AND n.reporter_id = ?`, [newsId, targetUser.id]);
 }
 
+function isValidPageMintApiTargetUser(user) {
+    if (!user) return false;
+    if (user.role === 'sub_editor') return true;
+    return user.role === 'reporter' && user.is_api_enabled;
+}
+
+function queryApiTargetRawNews(target, orderDirection) {
+    const orderBy = `ORDER BY datetime(n.created_at) ${orderDirection}, n.id ${orderDirection}`;
+    const bodyFilter = `
+          AND TRIM(COALESCE(n.headline, '')) != ''
+          AND TRIM(COALESCE(n.body, '')) != ''
+    `;
+    if (target.role === 'sub_editor') {
+        return queryAll(`
+            SELECT n.*, u.full_name as reporter_name
+            FROM news n
+            JOIN users u ON u.id = n.reporter_id
+            WHERE n.sub_editor_id = ?
+              AND n.status = 'raw'
+              ${bodyFilter}
+            ${orderBy}
+        `, [target.id]);
+    }
+    return queryAll(`
+        SELECT n.*, u.full_name as reporter_name
+        FROM news n
+        JOIN users u ON u.id = n.reporter_id
+        WHERE n.reporter_id = ?
+          AND n.status = 'raw'
+          ${bodyFilter}
+          AND NOT (n.sub_editor_id IS NOT NULL AND n.sub_editor_status = 'forwarded')
+        ${orderBy}
+    `, [target.id]);
+}
+
+function countApiTargetRawNews(target) {
+    if (target.role === 'sub_editor') {
+        return queryGet(`
+            SELECT COUNT(*) as c
+            FROM news n
+            WHERE n.sub_editor_id = ?
+              AND n.status = 'raw'
+              AND TRIM(COALESCE(n.headline, '')) != ''
+              AND TRIM(COALESCE(n.body, '')) != ''
+        `, [target.id])?.c || 0;
+    }
+    return queryGet(`
+        SELECT COUNT(*) as c
+        FROM news n
+        WHERE n.reporter_id = ?
+          AND n.status = 'raw'
+          AND TRIM(COALESCE(n.headline, '')) != ''
+          AND TRIM(COALESCE(n.body, '')) != ''
+          AND NOT (n.sub_editor_id IS NOT NULL AND n.sub_editor_status = 'forwarded')
+    `, [target.id])?.c || 0;
+}
+
 function runPageMintRawBundleJob({ payload, newsIds, placeholders }) {
     setImmediate(async () => {
         let stage = 'rewrite';
@@ -439,8 +496,9 @@ router.get('/api-targets', (req, res) => {
                   AND n.body_rewritten IS NOT NULL
                   AND TRIM(n.body_rewritten) != ''
             `, params)?.c || 0;
+            const rawCount = countApiTargetRawNews(target);
             const pdfCount = queryGet('SELECT COUNT(*) as c FROM api_pdfs WHERE target_user_id = ?', [target.id])?.c || 0;
-            return { ...target, processed_rewritten_count: count, pdf_count: pdfCount };
+            return { ...target, processed_rewritten_count: count, raw_news_count: rawCount, pdf_count: pdfCount };
         });
         res.json({ targets: targetsWithCounts });
     } catch (err) {
@@ -493,7 +551,8 @@ router.get('/api-targets/:id/news', (req, res) => {
         }
 
         const news = queryAll(query, params);
-        res.json({ news });
+        const rawNews = queryApiTargetRawNews(target, orderDirection);
+        res.json({ news, raw_news: rawNews });
     } catch(err) {
         console.error('Editor get api target news error:', err);
         res.status(500).json({ error: 'Failed to fetch news.' });
@@ -546,18 +605,27 @@ router.post('/newspaper-generator/raw-bundle', async (req, res) => {
             return res.status(400).json({ error: 'Only raw news can be sent with this action.' });
         }
 
-        const targetUser = resolveRawNewsPageMintTarget(newsRows[0]);
-        if (!targetUser) {
-            return res.status(400).json({
-                error: 'No PageMint API target for this story. Enable API on the reporter or assign a sub-editor.'
+        const explicitTargetId = Number(req.body.target_user_id);
+        let targetUser = null;
+        if (Number.isInteger(explicitTargetId) && explicitTargetId > 0) {
+            targetUser = queryGet(`${PAGE_MINT_TARGET_USER_SQL}`, [explicitTargetId]);
+            if (!isValidPageMintApiTargetUser(targetUser)) {
+                return res.status(400).json({ error: 'Invalid PageMint API target user.' });
+            }
+        } else {
+            targetUser = resolveRawNewsPageMintTarget(newsRows[0]);
+            if (!targetUser) {
+                return res.status(400).json({
+                    error: 'No PageMint API target for this story. Enable API on the reporter or assign a sub-editor.'
+                });
+            }
+            const mismatchedTarget = newsRows.some(row => {
+                const rowTarget = resolveRawNewsPageMintTarget(row);
+                return !rowTarget || rowTarget.id !== targetUser.id;
             });
-        }
-        const mismatchedTarget = newsRows.some(row => {
-            const rowTarget = resolveRawNewsPageMintTarget(row);
-            return !rowTarget || rowTarget.id !== targetUser.id;
-        });
-        if (mismatchedTarget) {
-            return res.status(400).json({ error: 'All selected raw news items must use the same PageMint API target.' });
+            if (mismatchedTarget) {
+                return res.status(400).json({ error: 'All selected raw news items must use the same PageMint API target.' });
+            }
         }
 
         if (targetUser.role === 'reporter' && !targetUser.is_api_enabled) {

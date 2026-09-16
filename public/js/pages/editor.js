@@ -1556,7 +1556,9 @@ let _apiTargets = [];
 let _selectedApiTargetId = null;
 let _selectedApiTargetName = '';
 let _selectedApiNews = new Set();
+let _selectedApiRawNews = new Set();
 let _apiNewsCache = [];
+let _apiRawNewsCache = [];
 let _apiNewsSort = 'latest';
 let _apiPdfPollTimer = null;
 let _apiPdfElapsedTimer = null;
@@ -1595,9 +1597,14 @@ function renderEditorApiScreen() {
                             <option value="oldest">Oldest to Latest</option>
                         </select>
                     </div>
-                    <button class="btn btn-primary btn-sm" id="apiBundleSendBtn" onclick="sendApiNewspaperBundle()" disabled>
-                        📰 AI rewritten खबरें PageMint भेजें (0)
-                    </button>
+                    <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+                        <button class="btn btn-secondary btn-sm" id="apiRawBundleSendBtn" onclick="sendApiRawNewspaperBundle()" disabled>
+                            📰 RAW खबरें PageMint भेजें (0)
+                        </button>
+                        <button class="btn btn-primary btn-sm" id="apiBundleSendBtn" onclick="sendApiNewspaperBundle()" disabled>
+                            📰 AI rewritten खबरें PageMint भेजें (0)
+                        </button>
+                    </div>
                 </div>
                 <div id="apiBundleWaitStatus" class="api-bundle-wait hidden"></div>
                 <div id="apiNewsList" style="margin-top: 12px; padding: 0 8px; display: flex; flex-direction: column; gap: 10px;"></div>
@@ -1627,6 +1634,7 @@ async function loadApiTargets() {
                 : `<div class="user-avatar ${t.role}" style="width:40px; height:40px; font-size:18px;">${t.full_name.charAt(0).toUpperCase()}</div>`;
             
             const count = Number(t.processed_rewritten_count || 0);
+            const rawCount = Number(t.raw_news_count || 0);
             return `
             <div class="card" style="display:flex; align-items:center; gap:16px; cursor:pointer; padding: 12px 16px; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='var(--card-bg)'" onclick="selectApiTarget(${t.id}, '${escapeHtml(t.full_name)}')">
                 ${avatarHtml}
@@ -1635,8 +1643,10 @@ async function loadApiTargets() {
                     <div style="font-size:0.9rem; color:var(--text-secondary); margin-top:4px;">
                         <strong>${t.role === 'sub_editor' ? 'Sub-Editor' : 'API Reporter'}</strong> <span style="margin: 0 6px;">•</span> ${escapeHtml(t.district || t.city || 'No City')}
                     </div>
-                    <div style="font-size:0.85rem; color:${count > 0 ? 'var(--accent-green)' : 'var(--accent-orange)'}; margin-top:4px;">
-                        AI rewritten processed news: ${count}
+                    <div style="font-size:0.85rem; color:var(--text-secondary); margin-top:4px;">
+                        RAW: <strong style="color:${rawCount > 0 ? 'var(--accent-orange)' : 'inherit'}">${rawCount}</strong>
+                        <span style="margin: 0 6px;">•</span>
+                        AI rewritten: <strong style="color:${count > 0 ? 'var(--accent-green)' : 'inherit'}">${count}</strong>
                     </div>
                 </div>
                 ${icon('chevron-right', 20)}
@@ -1654,7 +1664,9 @@ function backToApiTargets() {
     _selectedApiTargetId = null;
     _selectedApiTargetName = '';
     _selectedApiNews.clear();
+    _selectedApiRawNews.clear();
     _apiNewsCache = [];
+    _apiRawNewsCache = [];
 }
 
 async function selectApiTarget(id, name) {
@@ -1663,9 +1675,10 @@ async function selectApiTarget(id, name) {
     document.getElementById('apiTargetsSelection').classList.add('hidden');
     document.getElementById('apiNewsSelection').classList.remove('hidden');
     _selectedApiNews.clear();
+    _selectedApiRawNews.clear();
     updateApiBundleToolbar();
     const title = document.getElementById('apiSelectedTargetTitle');
-    if (title) title.textContent = `${name} की AI rewritten processed खबरें`;
+    if (title) title.textContent = `${name} — PageMint API (RAW + AI)`;
     const sortSelect = document.getElementById('apiNewsSortSelect');
     if (sortSelect) sortSelect.value = _apiNewsSort;
     
@@ -1680,6 +1693,7 @@ async function loadNewsForApiTarget() {
         const params = new URLSearchParams({ sort: _apiNewsSort });
         const data = await api(`/editor/api-targets/${_selectedApiTargetId}/news?${params.toString()}`);
         _apiNewsCache = data.news || [];
+        _apiRawNewsCache = data.raw_news || [];
         renderApiNewsList();
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
@@ -1706,32 +1720,73 @@ function getSortedApiNews() {
     });
 }
 
-function renderApiNewsList() {
-    const container = document.getElementById('apiNewsList');
-    if (!container) return;
+function getSortedApiRawNews() {
+    const direction = _apiNewsSort === 'oldest' ? 1 : -1;
+    return [..._apiRawNewsCache].sort((a, b) => {
+        const timeDiff = getApiNewsTimestamp(a) - getApiNewsTimestamp(b);
+        if (timeDiff !== 0) return timeDiff * direction;
+        return (Number(a.id) - Number(b.id)) * direction;
+    });
+}
 
-    const sortedNews = getSortedApiNews();
-    const selectAll = document.getElementById('selectAllApiNews');
-    if (selectAll) {
-        selectAll.checked = sortedNews.length > 0 && sortedNews.every(n => _selectedApiNews.has(n.id));
-    }
-
-    if (sortedNews.length === 0) {
-        container.innerHTML = `<div class="empty-state"><div class="empty-text">${escapeHtml(_selectedApiTargetName || 'इस यूज़र')} की कोई AI rewritten processed खबर उपलब्ध नहीं है</div></div>`;
-        return;
-    }
-
-    container.innerHTML = sortedNews.map(news => `
-        <div class="card api-news-card" onclick="toggleApiNewsSelection(${news.id})" id="api-news-card-${news.id}" style="padding:12px; display:flex; gap:12px; cursor:pointer;">
-            <input type="checkbox" id="api-chk-${news.id}" style="margin-top:4px;" onclick="event.stopPropagation(); toggleApiNewsSelection(${news.id})" ${_selectedApiNews.has(news.id) ? 'checked' : ''}>
+function renderApiNewsCard(news, { raw = false } = {}) {
+    const selectedSet = raw ? _selectedApiRawNews : _selectedApiNews;
+    const toggleFn = raw ? 'toggleApiRawNewsSelection' : 'toggleApiNewsSelection';
+    const chkPrefix = raw ? 'api-raw-chk' : 'api-chk';
+    const headline = raw ? news.headline : (news.headline_rewritten || news.headline);
+    const badge = raw ? `<span class="status-badge raw" style="font-size:10px;margin-right:6px;">RAW</span>` : '';
+    return `
+        <div class="card api-news-card" onclick="${toggleFn}(${news.id})" id="api-${raw ? 'raw-' : ''}news-card-${news.id}" style="padding:12px; display:flex; gap:12px; cursor:pointer;">
+            <input type="checkbox" id="${chkPrefix}-${news.id}" style="margin-top:4px;" onclick="event.stopPropagation(); ${toggleFn}(${news.id})" ${selectedSet.has(news.id) ? 'checked' : ''}>
             <div style="flex:1;">
-                <div style="font-weight:bold; font-size:0.95rem; line-height:1.4;">${escapeHtml(news.headline_rewritten || news.headline)}</div>
+                <div style="font-weight:bold; font-size:0.95rem; line-height:1.4;">${badge}<span style="color:var(--accent-orange);margin-right:4px;">#${news.id}</span>${escapeHtml(headline)}</div>
                 <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:6px;">
                     ${escapeHtml(news.reporter_name || '')} • ${escapeHtml(news.city || '')} • ${formatDate(news.processed_at || news.created_at)}
                 </div>
             </div>
         </div>
-    `).join('');
+    `;
+}
+
+function renderApiNewsList() {
+    const container = document.getElementById('apiNewsList');
+    if (!container) return;
+
+    const sortedRaw = getSortedApiRawNews();
+    const sortedNews = getSortedApiNews();
+    const selectAll = document.getElementById('selectAllApiNews');
+    if (selectAll) {
+        const allVisible = [...sortedRaw, ...sortedNews];
+        selectAll.checked = allVisible.length > 0
+            && sortedRaw.every(n => _selectedApiRawNews.has(n.id))
+            && sortedNews.every(n => _selectedApiNews.has(n.id));
+    }
+
+    if (sortedRaw.length === 0 && sortedNews.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-text">${escapeHtml(_selectedApiTargetName || 'इस यूज़र')} की कोई RAW या AI rewritten खबर उपलब्ध नहीं है</div></div>`;
+        updateApiBundleToolbar();
+        return;
+    }
+
+    const sections = [];
+    if (sortedRaw.length > 0) {
+        sections.push(`
+            <div style="margin-bottom:8px; font-size:13px; font-weight:600; color:var(--accent-orange); padding:0 4px;">
+                RAW खबरें (बिना AI rewrite — इसी ${escapeHtml(_selectedApiTargetName)} ID पर PageMint)
+            </div>
+            ${sortedRaw.map(news => renderApiNewsCard(news, { raw: true })).join('')}
+        `);
+    }
+    if (sortedNews.length > 0) {
+        sections.push(`
+            <div style="margin:16px 0 8px; font-size:13px; font-weight:600; color:var(--text-secondary); padding:0 4px;">
+                AI rewritten processed खबरें
+            </div>
+            ${sortedNews.map(news => renderApiNewsCard(news, { raw: false })).join('')}
+        `);
+    }
+    container.innerHTML = sections.join('');
+    updateApiBundleToolbar();
 }
 
 function toggleApiNewsSelection(id) {
@@ -1750,6 +1805,12 @@ function toggleApiNewsSelection(id) {
 }
 
 function toggleSelectAllApiNews(checked) {
+    getSortedApiRawNews().forEach(n => {
+        if (checked) _selectedApiRawNews.add(n.id);
+        else _selectedApiRawNews.delete(n.id);
+        const chk = document.getElementById(`api-raw-chk-${n.id}`);
+        if (chk) chk.checked = checked;
+    });
     getSortedApiNews().forEach(n => {
         if (checked) _selectedApiNews.add(n.id);
         else _selectedApiNews.delete(n.id);
@@ -1759,11 +1820,80 @@ function toggleSelectAllApiNews(checked) {
     updateApiBundleToolbar();
 }
 
+function toggleApiRawNewsSelection(id) {
+    const chk = document.getElementById(`api-raw-chk-${id}`);
+    if (_selectedApiRawNews.has(id)) {
+        _selectedApiRawNews.delete(id);
+        if (chk) chk.checked = false;
+    } else {
+        _selectedApiRawNews.add(id);
+        if (chk) chk.checked = true;
+    }
+    const sortedRaw = getSortedApiRawNews();
+    const sortedNews = getSortedApiNews();
+    const selectAll = document.getElementById('selectAllApiNews');
+    if (selectAll) {
+        const allVisible = [...sortedRaw, ...sortedNews];
+        selectAll.checked = allVisible.length > 0
+            && sortedRaw.every(n => _selectedApiRawNews.has(n.id))
+            && sortedNews.every(n => _selectedApiNews.has(n.id));
+    }
+    updateApiBundleToolbar();
+}
+
 function updateApiBundleToolbar() {
+    const rawBtn = document.getElementById('apiRawBundleSendBtn');
     const btn = document.getElementById('apiBundleSendBtn');
+    if (rawBtn) {
+        rawBtn.disabled = _selectedApiRawNews.size < 1;
+        rawBtn.textContent = `📰 RAW खबरें PageMint भेजें (${_selectedApiRawNews.size})`;
+    }
     if (!btn) return;
     btn.disabled = _selectedApiNews.size < 1;
     btn.textContent = `📰 AI rewritten खबरें PageMint भेजें (${_selectedApiNews.size})`;
+}
+
+async function sendApiRawNewspaperBundle() {
+    if (_selectedApiRawNews.size < 1) {
+        showToast('कम से कम 1 RAW खबर चुनें', 'error');
+        return;
+    }
+    if (!_selectedApiTargetId) {
+        showToast('पहले API reporter / sub-editor चुनें', 'error');
+        return;
+    }
+    const name = _selectedApiTargetName || 'इस यूज़र';
+    if (!confirm(`क्या आप ${_selectedApiRawNews.size} RAW खबरों को ${name} की PageMint ID पर भेजना चाहते हैं? (मूल headline, body, images — बिना AI rewrite)`)) {
+        return;
+    }
+
+    const btn = document.getElementById('apiRawBundleSendBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'भेज रहा है...';
+    }
+
+    try {
+        const res = await api('/editor/newspaper-generator/raw-bundle', {
+            method: 'POST',
+            body: JSON.stringify({
+                target_user_id: _selectedApiTargetId,
+                news_ids: Array.from(_selectedApiRawNews)
+            })
+        });
+
+        if (res.error) {
+            showToast(res.error, 'error');
+        } else {
+            showToast(res.message || `${name} को RAW bundle भेज दिया गया`, 'success');
+            _selectedApiRawNews.clear();
+            await loadNewsForApiTarget();
+        }
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    } finally {
+        updateApiBundleToolbar();
+    }
 }
 
 async function sendRawNewsToPageMint(newsId, btn) {
