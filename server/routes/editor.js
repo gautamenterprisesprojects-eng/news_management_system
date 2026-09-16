@@ -383,6 +383,7 @@ router.get('/news/processed', (req, res) => {
             JOIN users u ON n.reporter_id = u.id
             LEFT JOIN users se ON se.id = n.sub_editor_id
             WHERE n.status = 'processed'
+              AND n.editor_processed_hidden_at IS NULL
               ${visibleClause}
             ORDER BY n.processed_at DESC
         `, params);
@@ -1147,14 +1148,37 @@ router.post('/news/:id/forward-operator', (req, res) => {
         }
 
         queryRun(
-            "UPDATE news SET status = 'forwarded', forwarded_at = datetime('now', 'localtime') WHERE id = ?",
+            "UPDATE news SET status = 'forwarded', forwarded_at = datetime('now', 'localtime'), editor_processed_hidden_at = NULL WHERE id = ?",
             [news.id]
         );
 
-        res.json({ success: true, message: 'News forwarded to operators.' });
+        res.json({ success: true, message: 'खबर सिर्फ ऑपरेटर को भेज दी गई।' });
     } catch (err) {
         console.error('Editor operator-only forward error:', err);
         res.status(500).json({ error: 'Failed to forward news to operators.' });
+    }
+});
+
+/**
+ * POST /api/editor/news/:id/hide-processed
+ * Hide from editor Processed list only; does not delete or change news status.
+ */
+router.post('/news/:id/hide-processed', (req, res) => {
+    try {
+        const news = queryGet("SELECT * FROM news WHERE id = ? AND status = 'processed'", [req.params.id]);
+        if (!news) {
+            return res.status(400).json({ error: 'Only processed news can be hidden from this list.' });
+        }
+
+        queryRun(
+            "UPDATE news SET editor_processed_hidden_at = datetime('now', 'localtime') WHERE id = ?",
+            [news.id]
+        );
+
+        res.json({ success: true, message: 'Processed सूची से हटा दिया गया (बाकी जगह वही रहेगा)।' });
+    } catch (err) {
+        console.error('Editor hide processed error:', err);
+        res.status(500).json({ error: 'Failed to hide news from processed list.' });
     }
 });
 

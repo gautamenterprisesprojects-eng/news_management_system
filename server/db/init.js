@@ -242,7 +242,8 @@ async function initDatabase() {
             sub_editor_forwarded_at: 'TEXT',
             sub_editor_rejected_at: 'TEXT',
             sub_editor_reject_reason: 'TEXT',
-            newspaper_sent_at: 'TEXT'
+            newspaper_sent_at: 'TEXT',
+            editor_processed_hidden_at: 'TEXT'
         },
         news_images: { sort_order: 'INTEGER DEFAULT 0' },
         api_pdfs: {

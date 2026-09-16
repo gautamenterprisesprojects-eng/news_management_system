@@ -452,6 +452,12 @@ async function loadProcessedNews() {
                     <button class="btn btn-secondary btn-xs btn-website-forward" onclick="event.stopPropagation(); quickWebsiteForwardNews(${n.id}, this)">
                         ${icon('globe',12)} सिर्फ वेबसाइट पर
                     </button>
+                    <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); quickOperatorForwardNews(${n.id}, this)">
+                        ${icon('user',12)} सिर्फ ऑपरेटर को भेजें
+                    </button>
+                    <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); hideProcessedNewsFromEditor(${n.id}, this)" title="सिर्फ Processed सूची से हटाएं">
+                        ${icon('x-circle',12)} हटाएं
+                    </button>
                 </div>
             </div>
         `).join('');
@@ -557,6 +563,12 @@ async function openProcessedNewsDetail(id) {
             </button>
             <button class="btn btn-secondary btn-website-forward" style="flex:1;" onclick="websiteForwardEditedNews(${id}, this)">
                 ${icon('globe', 14)} सिर्फ वेबसाइट पर फॉरवर्ड करें
+            </button>
+            <button class="btn btn-secondary" style="flex:1;" onclick="operatorForwardEditedNews(${id}, this)">
+                ${icon('user', 14)} सिर्फ ऑपरेटर को भेजें
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="hideProcessedNewsFromEditor(${id}, this)">
+                ${icon('x-circle', 14)} Processed सूची से हटाएं
             </button>
         `;
 
@@ -1147,6 +1159,9 @@ async function forwardNewsWithProgress(id, buttonEl, endpoint, successMessage, c
         showToast(successMessage, 'success');
         await loadProcessedNews();
         await loadRawNews();
+        if (endpoint === '/forward' || endpoint === '/forward-operator') {
+            await loadForwardedNews();
+        }
         return result;
     } catch (err) {
         finishProgress(false);
@@ -1193,6 +1208,12 @@ async function websiteForwardEditedNews(id, buttonEl = null) {
     await forwardNewsWithProgress(id, buttonEl, '/forward-website', 'खबर सिर्फ वेबसाइट पर भेज दी गई', false);
 }
 
+async function operatorForwardEditedNews(id, buttonEl = null) {
+    const saved = await saveProcessedNewsEdits(id, { silent: true });
+    if (!saved) return;
+    await forwardNewsWithProgress(id, buttonEl, '/forward-operator', 'खबर सिर्फ ऑपरेटर को भेज दी गई', true);
+}
+
 
 async function quickApproveNews(id) {
     try {
@@ -1220,6 +1241,36 @@ async function quickForwardNews(id, buttonEl = null) {
 
 async function quickWebsiteForwardNews(id, buttonEl = null) {
     await forwardNewsWithProgress(id, buttonEl, '/forward-website', 'खबर सिर्फ वेबसाइट पर भेज दी गई', false);
+}
+
+async function quickOperatorForwardNews(id, buttonEl = null) {
+    await forwardNewsWithProgress(id, buttonEl, '/forward-operator', 'खबर सिर्फ ऑपरेटर को भेज दी गई', false);
+}
+
+async function hideProcessedNewsFromEditor(id, buttonEl = null) {
+    if (!confirm('क्या आप इस खबर को सिर्फ Processed सूची से हटाना चाहते हैं? (डेटाबेस / ऑपरेटर / वेबसाइट — कहीं और नहीं हटेगी)')) {
+        return;
+    }
+    if (buttonEl) {
+        buttonEl.disabled = true;
+    }
+    try {
+        const result = await api(`/editor/news/${id}/hide-processed`, {
+            method: 'POST',
+            body: JSON.stringify({})
+        });
+        if (result.error) {
+            showToast(result.error, 'error');
+            if (buttonEl) buttonEl.disabled = false;
+            return;
+        }
+        closeArticleModal();
+        showToast(result.message || 'Processed सूची से हटा दिया गया', 'success');
+        await loadProcessedNews();
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+        if (buttonEl) buttonEl.disabled = false;
+    }
 }
 
 function renderEditorExternalLinks(news) {
