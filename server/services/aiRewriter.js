@@ -9,6 +9,7 @@ function buildEditorialPrompt({
     targetWords = 400,
     numSubheadings = 3,
     captionWords = 30,
+    includeImageCaption = true,
     language = 'hi',
     reporterName = '',
     reporterPost = '',
@@ -25,6 +26,7 @@ function buildEditorialPrompt({
     }
     subheadingLabels = subheadingLabels.trim();
 
+    const wantsCaption = includeImageCaption !== false && includeImageCaption !== 0 && includeImageCaption !== '0';
     const minCaption = Math.max(15, captionWords - 10);
     const maxCaption = captionWords + 10;
     let rawNewsText = '';
@@ -62,7 +64,7 @@ Rewrite the supplied raw news into a factual, polished, publication-ready ${lang
 SETTINGS
 Output language: ${langTitle}.
 Total final output length: ${targetWords} words.
-Include image caption: Yes.
+Include image caption: ${wantsCaption ? 'Yes' : 'No'}.
 Include headline: Yes.
 Number of subheadings: ${numSubheadings}.
 Writing style: Writing Diversity Engine.
@@ -89,7 +91,7 @@ Avoid repetitive summaries, filler, exaggerated emotion, promotional language, a
 Keep the required display-line order fixed while varying the body's narrative structure.
 
 OUTPUT STRUCTURE — FOLLOW THIS EXACT ORDER
-
+${wantsCaption ? `
 1. IMAGE CAPTION
 Start with the label:
 ${captionLabel}
@@ -99,7 +101,8 @@ Capture the main event and relevant place or impact when supported.
 Do not invent visual details or imply that you have seen a photograph.
 No opinion, clickbait, or sensationalism.
 
-2. HEADLINE
+2. HEADLINE` : `
+1. HEADLINE`}
 Use the label exactly:
 ${headlineLabel}
 
@@ -113,7 +116,7 @@ Do not write a keyword chain, topic list, fragment, or unfinished clause.
 ${isHindi ? 'Do not end with dangling words such as की, के, का, में, पर, से, और, या, क्योंकि, लेकिन, बिना, बीच, कड़े, बड़ी, or नई.' : 'Do not end with dangling prepositions or conjunctions.'}
 Base the headline on the entire raw news, not only its opening sentence.
 
-3. SUBHEADINGS
+${wantsCaption ? '3' : '2'}. SUBHEADINGS
 Write exactly ${numSubheadings} subheadings using these labels:
 ${subheadingLabels}
 
@@ -124,7 +127,7 @@ End each with a full stop.
 Do not start or end with dangling connectors or postpositions.
 Place all ${numSubheadings} subheadings before the brand-location line.
 
-4. BYLINE AND BRAND-LOCATION
+${wantsCaption ? '4' : '3'}. BYLINE AND BRAND-LOCATION
 Immediately after the subheadings, you must write these standalone lines in this exact order:
 
 ${bylineInstruction}${brandName}, verified main place
@@ -140,7 +143,7 @@ Never guess a location.
 If the source does not establish a geographic location confidently, write only:
 ${brandName}
 
-5. ARTICLE BODY
+${wantsCaption ? '5' : '4'}. ARTICLE BODY
 Start the body immediately after the brand-location line.
 Write natural, coherent paragraphs with clear factual progression.
 Prioritize the important information while preserving the source's information.
@@ -149,15 +152,15 @@ Do not use parentheses, brackets, Markdown headings, bullet points, decorative p
 
 WORD COUNT
 The COMPLETE final output must contain approximately ${targetWords} whitespace-separated words.
-This count includes the caption, headline, subheadings, their labels, byline, brand-location line, and body.
+This count includes ${wantsCaption ? 'the caption, ' : ''}headline, subheadings, their labels, byline, brand-location line, and body.
+${wantsCaption ? '' : 'Do not write any image caption line or "इमेज कैप्शन"/"Image Caption" label.\n'}
 Silently count and revise before returning.
 Do not pad with invented information or cut sentences into fragments.
 
 FINAL CHECK
 Silently verify:
 - All claims are grounded in the raw news.
-- The caption contains ${minCaption}–${maxCaption} words.
-- There is exactly one headline containing 11–16 words and exactly one comma.
+${wantsCaption ? `- The caption contains ${minCaption}–${maxCaption} words.\n` : '- No image caption is present anywhere in the output.\n'}- There is exactly one headline containing 11–16 words and exactly one comma.
 - There are exactly ${numSubheadings} subheadings containing 8–14 words each.
 - The brand-location line contains only the brand and a supported geographic place, or the brand alone.
 ${bylineValue ? `- The byline reads exactly: ${bylineValue}` : ''}
@@ -191,6 +194,9 @@ async function rewriteArticle(headline, body, options = {}) {
     const targetWords = parseInt(opts.targetWords, 10) || 400;
     const numSubheadings = parseInt(opts.numSubheadings, 10) || 3;
     const captionWords = parseInt(opts.captionWords, 10) || 30;
+    const includeImageCaption = opts.includeImageCaption !== false
+        && opts.includeImageCaption !== 0
+        && opts.includeImageCaption !== '0';
     const language = opts.language === 'en' ? 'en' : 'hi';
     const reporterName = opts.reporterName || '';
     const reporterPost = opts.reporterPost || '';
@@ -202,6 +208,7 @@ async function rewriteArticle(headline, body, options = {}) {
         targetWords,
         numSubheadings,
         captionWords,
+        includeImageCaption,
         language,
         reporterName,
         reporterPost,

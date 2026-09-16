@@ -846,7 +846,8 @@ async function triggerRewrite(id, options = {}, btn = null) {
         language: options.language || 'hi',
         numSubheadings: options.numSubheadings || 3,
         captionWords: options.captionWords || 30,
-        targetWords: options.targetWords || 400
+        targetWords: options.targetWords || 400,
+        includeImageCaption: options.includeImageCaption !== false
     };
 
     let originalBtnHtml = '';
@@ -898,6 +899,7 @@ function showCustomRewriteModal(newsId) {
         targetWords: 400,
         numSubheadings: 3,
         captionWords: 30,
+        includeImageCaption: true,
         language: 'hi'
     };
 
@@ -953,6 +955,10 @@ function showCustomRewriteModal(newsId) {
                     <div class="custom-rewrite-label">
                         ${icon('image',14)} <span>${t('editor.caption_words_title')}</span>
                     </div>
+                    <div class="selector-pills" id="captionEnablePills" style="margin-bottom: 10px;">
+                        <button type="button" class="selector-pill active" data-val="1">इमेज कैप्शन चालू</button>
+                        <button type="button" class="selector-pill" data-val="0">इमेज कैप्शन बंद</button>
+                    </div>
                     <div class="selector-pills" id="captionPills">
                         ${captionOptions.map(c => `
                             <button type="button" class="selector-pill ${c === state.captionWords ? 'active' : ''}" data-val="${c}">
@@ -1007,6 +1013,26 @@ function showCustomRewriteModal(newsId) {
     setupPills('subheadingPills', 'numSubheadings', true);
     setupPills('captionPills', 'captionWords', true);
     setupPills('langPills', 'language', false);
+
+    const captionPillsEl = document.getElementById('captionPills');
+    const captionEnablePills = document.getElementById('captionEnablePills');
+    function syncCaptionWordPills() {
+        if (!captionPillsEl) return;
+        const disabled = state.includeImageCaption === false;
+        captionPillsEl.style.opacity = disabled ? '0.45' : '1';
+        captionPillsEl.style.pointerEvents = disabled ? 'none' : 'auto';
+    }
+    if (captionEnablePills) {
+        captionEnablePills.querySelectorAll('.selector-pill').forEach(pill => {
+            pill.onclick = () => {
+                captionEnablePills.querySelectorAll('.selector-pill').forEach(p => p.classList.remove('active'));
+                pill.classList.add('active');
+                state.includeImageCaption = pill.dataset.val !== '0';
+                syncCaptionWordPills();
+            };
+        });
+    }
+    syncCaptionWordPills();
 
     document.getElementById('applyCustomRewriteBtn').onclick = () => {
         closeCustomRewriteModal();

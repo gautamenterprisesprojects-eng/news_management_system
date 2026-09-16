@@ -999,6 +999,7 @@ router.post('/news/:id/rewrite', async (req, res) => {
             targetWords = 400,
             numSubheadings = 3,
             captionWords = 30,
+            includeImageCaption = true,
             language = 'hi'
         } = req.body;
 
@@ -1024,6 +1025,7 @@ router.post('/news/:id/rewrite', async (req, res) => {
                 targetWords,
                 numSubheadings,
                 captionWords,
+                includeImageCaption,
                 language,
                 reporterName,
                 reporterPost,
