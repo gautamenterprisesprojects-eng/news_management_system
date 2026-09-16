@@ -592,6 +592,83 @@ async function openProcessedNewsDetail(id) {
 
 const EDITOR_MAX_NEWS_IMAGES = 10;
 let _editorCropperInstance = null;
+let _editorCropObjectUrl = null;
+
+function isMobileEditorUi() {
+    return window.matchMedia('(max-width: 768px)').matches
+        || window.matchMedia('(pointer: coarse)').matches;
+}
+
+function getEditorCropExportLimits() {
+    if (isMobileEditorUi()) {
+        return { maxWidth: 1200, maxHeight: 1200, quality: 0.82, smoothing: 'medium' };
+    }
+    return { maxWidth: 2000, maxHeight: 2000, quality: 0.88, smoothing: 'high' };
+}
+
+function loadImageElement(url) {
+    return new Promise((resolve, reject) => {
+        const el = new Image();
+        el.decoding = 'async';
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('Image failed to load'));
+        el.src = url;
+    });
+}
+
+async function loadOptimizedCropPreviewSource(url) {
+    const bustUrl = bustImageUrl(url);
+    const img = await loadImageElement(bustUrl);
+    const maxEdge = isMobileEditorUi() ? 1280 : 1920;
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (!w || !h) {
+        throw new Error('Invalid image dimensions');
+    }
+    if (w <= maxEdge && h <= maxEdge) {
+        return { src: bustUrl, revoke: null };
+    }
+
+    const scale = maxEdge / Math.max(w, h);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    const ctx = canvas.getContext('2d', { alpha: false });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'medium';
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (!blob) {
+        throw new Error('Could not prepare crop preview');
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    return { src: objectUrl, revoke: objectUrl };
+}
+
+function getEditorCropperOptions() {
+    const mobile = isMobileEditorUi();
+    return {
+        viewMode: 1,
+        dragMode: 'move',
+        autoCropArea: 0.9,
+        responsive: true,
+        restore: false,
+        checkOrientation: false,
+        modal: true,
+        guides: !mobile,
+        center: !mobile,
+        highlight: !mobile,
+        background: false,
+        zoomOnWheel: !mobile,
+        touchDragZoom: true,
+        wheelZoomRatio: 0.08
+    };
+}
+
+function waitForNextPaint() {
+    return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
 
 function bustImageUrl(url) {
     if (!url) return url;
@@ -659,6 +736,10 @@ function closeEditorImageCropModal() {
         _editorCropperInstance.destroy();
         _editorCropperInstance = null;
     }
+    if (_editorCropObjectUrl) {
+        URL.revokeObjectURL(_editorCropObjectUrl);
+        _editorCropObjectUrl = null;
+    }
     const el = document.getElementById('editorImageCropModal');
     if (el) el.remove();
     document.body.style.overflow = document.getElementById('articleModal') ? 'hidden' : '';
@@ -673,14 +754,13 @@ function openEditorImageCropFromTile(newsId, imageId, buttonEl) {
     openEditorImageCrop(newsId, imageId, src);
 }
 
-function openEditorImageCrop(newsId, imageId, imageUrl) {
+async function openEditorImageCrop(newsId, imageId, imageUrl) {
     if (typeof Cropper === 'undefined') {
         showToast('Image crop tool is loading. Please refresh and try again.', 'error');
         return;
     }
 
     closeEditorImageCropModal();
-    const safeUrl = bustImageUrl(imageUrl);
 
     document.body.insertAdjacentHTML('beforeend', `
         <div class="confirm-overlay editor-crop-overlay" id="editorImageCropModal" onclick="if(event.target === this) closeEditorImageCropModal()">
@@ -689,12 +769,16 @@ function openEditorImageCrop(newsId, imageId, imageUrl) {
                     <strong>फोटो क्रॉप करें</strong>
                     <button type="button" class="btn-icon" onclick="closeEditorImageCropModal()" aria-label="Close">✕</button>
                 </div>
-                <div class="editor-crop-stage">
-                    <img id="editorCropTargetImage" src="${safeUrl}" alt="Crop preview">
+                <div class="editor-crop-stage" id="editorCropStage">
+                    <div class="editor-crop-loading" id="editorCropLoading">
+                        <div class="loading-spinner"></div>
+                        <span>फोटो तैयार हो रही है...</span>
+                    </div>
+                    <img id="editorCropTargetImage" class="editor-crop-target hidden" alt="Crop preview">
                 </div>
                 <div class="editor-crop-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeEditorImageCropModal()">${t('common.cancel')}</button>
-                    <button type="button" class="btn btn-primary" id="editorCropSaveBtn" onclick="saveEditorImageCrop(${newsId}, ${imageId})">
+                    <button type="button" class="btn btn-primary" id="editorCropSaveBtn" disabled onclick="saveEditorImageCrop(${newsId}, ${imageId})">
                         ${icon('check', 14)} क्रॉप सेव करें
                     </button>
                 </div>
@@ -703,19 +787,36 @@ function openEditorImageCrop(newsId, imageId, imageUrl) {
     `);
 
     const img = document.getElementById('editorCropTargetImage');
-    const initCropper = () => {
-        if (_editorCropperInstance || !img) return;
-        _editorCropperInstance = new Cropper(img, {
-            viewMode: 1,
-            dragMode: 'move',
-            autoCropArea: 0.92,
-            responsive: true,
-            background: false,
-            zoomOnWheel: true
+    const loadingEl = document.getElementById('editorCropLoading');
+    const saveBtn = document.getElementById('editorCropSaveBtn');
+
+    try {
+        const prepared = await loadOptimizedCropPreviewSource(imageUrl);
+        _editorCropObjectUrl = prepared.revoke;
+        img.src = prepared.src;
+        img.classList.remove('hidden');
+
+        await new Promise((resolve, reject) => {
+            if (img.complete && img.naturalWidth > 0) {
+                resolve();
+                return;
+            }
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error('Crop preview failed to load'));
         });
-    };
-    img.onload = initCropper;
-    if (img.complete) initCropper();
+
+        if (!document.getElementById('editorImageCropModal') || _editorCropperInstance || !img) return;
+        _editorCropperInstance = new Cropper(img, {
+            ...getEditorCropperOptions(),
+            ready() {
+                if (loadingEl) loadingEl.classList.add('hidden');
+                if (saveBtn) saveBtn.disabled = false;
+            }
+        });
+    } catch (err) {
+        closeEditorImageCropModal();
+        showToast(t('common.error'), 'error');
+    }
 }
 
 function applyCroppedImagesToEditorUi(newsId, result) {
@@ -746,19 +847,23 @@ async function saveEditorImageCrop(newsId, imageId) {
     }
 
     try {
+        await waitForNextPaint();
+        const limits = getEditorCropExportLimits();
         const canvas = _editorCropperInstance.getCroppedCanvas({
-            maxWidth: 2400,
-            maxHeight: 2400,
+            maxWidth: limits.maxWidth,
+            maxHeight: limits.maxHeight,
             fillColor: '#ffffff',
             imageSmoothingEnabled: true,
-            imageSmoothingQuality: 'high'
+            imageSmoothingQuality: limits.smoothing
         });
         if (!canvas) {
             showToast('क्रॉप एरिया चुनें', 'error');
             return;
         }
 
-        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+        const blob = await new Promise(resolve => {
+            canvas.toBlob(resolve, 'image/jpeg', limits.quality);
+        });
         if (!blob) {
             showToast(t('common.error'), 'error');
             return;
@@ -780,16 +885,18 @@ async function saveEditorImageCrop(newsId, imageId) {
 
         closeEditorImageCropModal();
         applyCroppedImagesToEditorUi(newsId, result);
-        await refreshEditorImagePickerInModal(newsId);
-
-        if (document.getElementById('rawNewsList')) loadRawNews();
-        if (document.getElementById('processedNewsList')) loadProcessedNews();
-        if (document.getElementById('forwardedNewsList')) loadForwardedNews();
         showToast(result.message || 'क्रॉप की गई फोटो सेव हो गई', 'success');
+
+        setTimeout(async () => {
+            await refreshEditorImagePickerInModal(newsId);
+            if (document.getElementById('rawNewsList')) loadRawNews();
+            if (document.getElementById('processedNewsList')) loadProcessedNews();
+            if (document.getElementById('forwardedNewsList')) loadForwardedNews();
+        }, 0);
     } catch (err) {
         showToast(t('common.error'), 'error');
     } finally {
-        if (saveBtn) {
+        if (saveBtn && document.getElementById('editorCropSaveBtn')) {
             saveBtn.disabled = false;
             if (originalHtml) saveBtn.innerHTML = originalHtml;
             refreshIcons();
