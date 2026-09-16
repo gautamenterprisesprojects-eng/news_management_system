@@ -678,10 +678,183 @@ async function renderAdminSettings() {
             </div>
         </div>
 
+        <div class="settings-section">
+            <div class="settings-section-title">PageMint NMS — CliffFrontEditorRail8A (एडिटर रेल)</div>
+            <p style="font-size:0.85rem;color:var(--text-secondary);margin:0 0 12px;">
+                Generator loads <code>GET /api/publisher/profile/{publisherId}</code> with Bearer token. First author fills the red left rail (photo, name, place, designation).
+            </p>
+            <div class="form-group">
+                <label class="form-label">Publisher ID</label>
+                <input type="text" class="form-input" id="publisherProfileId" placeholder="cliffdemo3">
+            </div>
+            <div id="publisherAuthorsList" style="display:flex;flex-direction:column;gap:12px;"></div>
+            <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" onclick="addPublisherAuthorRow()">+ और एडिटर / पदाधिकारी जोड़ें</button>
+            <div class="form-group" style="margin-top:16px;">
+                <label class="form-label">Default city (fallback place)</label>
+                <input type="text" class="form-input" id="publisherProfileCity" placeholder="भोपाल">
+            </div>
+            <button class="btn btn-primary btn-full" id="savePublisherProfileBtn" onclick="savePublisherProfile()" style="margin-top:12px;">
+                Save Editor Rail Profile
+            </button>
+        </div>
+
         <button class="btn btn-primary btn-full" id="saveSettingsBtn" onclick="saveSettings()" data-i18n="admin.save_settings">${t('admin.save_settings')}</button>
     `;
     applyLanguage();
     loadSettings();
+    loadPublisherProfile();
+}
+
+let _publisherAuthors = [];
+
+function renderPublisherAuthorRows() {
+    const container = document.getElementById('publisherAuthorsList');
+    if (!container) return;
+    if (_publisherAuthors.length < 1) {
+        _publisherAuthors.push({ name: '', location: '', designation: '', image_url: '' });
+    }
+
+    container.innerHTML = _publisherAuthors.map((author, idx) => `
+        <div class="card" style="padding:12px;" data-author-idx="${idx}">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <strong>रेल #${idx + 1}${idx === 0 ? ' (मुख्य)' : ''}</strong>
+                ${_publisherAuthors.length > 1 ? `<button type="button" class="btn btn-danger btn-xs" onclick="removePublisherAuthorRow(${idx})">हटाएं</button>` : ''}
+            </div>
+            <div class="form-group">
+                <label class="form-label">नाम (name)</label>
+                <input type="text" class="form-input publisher-author-name" data-idx="${idx}" value="${escapeHtml(author.name || '')}" placeholder="प्रदीप कुमार">
+            </div>
+            <div class="form-group">
+                <label class="form-label">स्थान (location / place / city)</label>
+                <input type="text" class="form-input publisher-author-location" data-idx="${idx}" value="${escapeHtml(author.location || '')}" placeholder="भोपाल">
+            </div>
+            <div class="form-group">
+                <label class="form-label">पद (designation / title)</label>
+                <input type="text" class="form-input publisher-author-designation" data-idx="${idx}" value="${escapeHtml(author.designation || '')}" placeholder="ब्यूरो चीफ">
+            </div>
+            <div class="form-group">
+                <label class="form-label">फोटो (image_url) — PNG/WebP transparent</label>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    ${author.image_url ? `<img src="${author.image_url}" alt="" style="width:56px;height:56px;object-fit:contain;border-radius:8px;background:#fee2e2;">` : ''}
+                    <input type="hidden" class="publisher-author-image" data-idx="${idx}" value="${escapeHtml(author.image_url || '')}">
+                    <input type="file" accept="image/*" id="publisherAuthorImageFile-${idx}" style="display:none" onchange="uploadPublisherAuthorImage(${idx}, this)">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('publisherAuthorImageFile-${idx}').click()">फोटो अपलोड</button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function syncPublisherAuthorsFromDom() {
+    _publisherAuthors = _publisherAuthors.map((author, idx) => ({
+        name: document.querySelector(`.publisher-author-name[data-idx="${idx}"]`)?.value.trim() || '',
+        location: document.querySelector(`.publisher-author-location[data-idx="${idx}"]`)?.value.trim() || '',
+        designation: document.querySelector(`.publisher-author-designation[data-idx="${idx}"]`)?.value.trim() || '',
+        image_url: document.querySelector(`.publisher-author-image[data-idx="${idx}"]`)?.value.trim() || author.image_url || ''
+    }));
+}
+
+function addPublisherAuthorRow() {
+    syncPublisherAuthorsFromDom();
+    if (_publisherAuthors.length >= 5) {
+        showToast('अधिकतम 5 authors', 'error');
+        return;
+    }
+    _publisherAuthors.push({ name: '', location: '', designation: '', image_url: '' });
+    renderPublisherAuthorRows();
+}
+
+function removePublisherAuthorRow(idx) {
+    syncPublisherAuthorsFromDom();
+    _publisherAuthors.splice(idx, 1);
+    renderPublisherAuthorRows();
+}
+
+async function uploadPublisherAuthorImage(idx, inputEl) {
+    const file = inputEl?.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('image', file);
+    try {
+        const data = await api('/admin/publisher-profile/editor-image', {
+            method: 'POST',
+            body: formData,
+            isFormData: true
+        });
+        if (data.error) {
+            showToast(data.error, 'error');
+            return;
+        }
+        syncPublisherAuthorsFromDom();
+        _publisherAuthors[idx].image_url = data.image_url;
+        renderPublisherAuthorRows();
+        showToast('Editor rail photo uploaded', 'success');
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    } finally {
+        inputEl.value = '';
+    }
+}
+
+async function loadPublisherProfile() {
+    try {
+        const profile = await api('/admin/publisher-profile');
+        const idEl = document.getElementById('publisherProfileId');
+        const cityEl = document.getElementById('publisherProfileCity');
+        if (idEl) idEl.value = profile.publisher_id || 'cliffdemo3';
+        if (cityEl) cityEl.value = profile.city || '';
+
+        const authors = Array.isArray(profile.editorial_authors) ? profile.editorial_authors : [];
+        if (authors.length > 0) {
+            _publisherAuthors = authors.map(a => ({
+                name: a.name || '',
+                location: a.location || a.place || a.city || '',
+                designation: a.designation || a.title || '',
+                image_url: a.image_url || a.imageUrl || ''
+            }));
+        } else if (profile.editorial_author_name || profile.editorial_author_image_url) {
+            _publisherAuthors = [{
+                name: profile.editorial_author_name || '',
+                location: profile.city || '',
+                designation: profile.editorial_author_designation || '',
+                image_url: profile.editorial_author_image_url || ''
+            }];
+        } else {
+            _publisherAuthors = [{ name: '', location: '', designation: '', image_url: '' }];
+        }
+        renderPublisherAuthorRows();
+    } catch (err) {
+        // Settings tab may render before auth; ignore silent
+    }
+}
+
+async function savePublisherProfile() {
+    syncPublisherAuthorsFromDom();
+    const btn = document.getElementById('savePublisherProfileBtn');
+    if (btn) btn.disabled = true;
+
+    const body = {
+        publisher_id: document.getElementById('publisherProfileId')?.value.trim(),
+        city: document.getElementById('publisherProfileCity')?.value.trim(),
+        editorial_authors: _publisherAuthors.filter(a => a.name || a.image_url || a.location || a.designation)
+    };
+
+    try {
+        const data = await api('/admin/publisher-profile', {
+            method: 'PUT',
+            body: JSON.stringify(body)
+        });
+        if (data.error) {
+            showToast(data.error, 'error');
+        } else {
+            showToast('Editor rail profile saved for PageMint generator', 'success');
+            await loadPublisherProfile();
+        }
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }
 
 async function loadSettings() {

@@ -82,6 +82,7 @@ const externalNewsRoutes = require('./routes/externalNews');
 const pagemintBundleRoutes = require('./routes/pagemintBundles');
 const pushRoutes = require('./routes/push');
 const webhookRoutes = require('./routes/webhook');
+const publisherRoutes = require('./routes/publisher');
 
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
@@ -97,6 +98,7 @@ app.use('/api/external-news', externalNewsRoutes);
 app.use('/api/pagemint-bundles', pagemintBundleRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/webhook', webhookRoutes);
+app.use('/api/publisher', publisherRoutes);
 
 function deleteUploadedFile(fileUrl) {
     if (!fileUrl) return;

@@ -371,7 +371,9 @@ async function initDatabase() {
         ['gemini_api_key', process.env.GEMINI_API_KEY || ''],
         ['gemini_model', process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite'],
         ['deepseek_api_key', process.env.DEEPSEEK_API_KEY || ''],
-        ['ai_rewrite_prompt', 'You are a professional news editor. Rewrite the following news article to be clear, concise, and professionally written. Maintain all factual accuracy. Keep the same language as the input (Hindi or English). Return ONLY a JSON object with two fields: "headline" (rewritten headline) and "body" (rewritten article body). Do not include any other text or markdown formatting.']
+        ['ai_rewrite_prompt', 'You are a professional news editor. Rewrite the following news article to be clear, concise, and professionally written. Maintain all factual accuracy. Keep the same language as the input (Hindi or English). Return ONLY a JSON object with two fields: "headline" (rewritten headline) and "body" (rewritten article body). Do not include any other text or markdown formatting.'],
+        ['publisher_id', process.env.NEWSPAPER_GENERATOR_PAGEMINT_USER_ID || process.env.PAGEMINT_PUBLISHER_ID || 'cliffdemo3'],
+        ['publisher_editorial_profile', '{}']
     ];
 
     for (const [key, value] of defaultSettings) {

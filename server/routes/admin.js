@@ -4,7 +4,11 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-const { avatarsDir, resolveUpload } = require('../storage');
+const { avatarsDir, uploadsDir, resolveUpload } = require('../storage');
+const {
+    getAdminPublisherProfile,
+    updateAdminPublisherProfile
+} = require('../services/publisherProfile');
 const { queryAll, queryGet, queryRun } = require('../db/init');
 const { verifyToken, requireRole } = require('../middleware/auth');
 
@@ -22,6 +26,26 @@ const storage = multer.diskStorage({
         cb(null, 'avatar-' + userId + '-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
+const editorialDir = path.join(uploadsDir, 'editorial');
+const editorialStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        if (!fs.existsSync(editorialDir)) fs.mkdirSync(editorialDir, { recursive: true });
+        cb(null, editorialDir);
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname) || '.png';
+        cb(null, `editor-rail-${Date.now()}${ext}`);
+    }
+});
+const editorialUpload = multer({
+    storage: editorialStorage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) cb(null, true);
+        else cb(new Error('Not an image! Please upload an image.'), false);
+    }
+});
+
 const upload = multer({ 
     storage: storage,
     limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit
@@ -363,6 +387,48 @@ router.put('/settings', (req, res) => {
     } catch (err) {
         console.error('Admin update settings error:', err);
         res.status(500).json({ error: 'Failed to update settings.' });
+    }
+});
+
+/**
+ * GET /api/admin/publisher-profile
+ * CliffFrontEditorRail8A — editor rail fields for PageMint NMS bundle layout.
+ */
+router.get('/publisher-profile', (req, res) => {
+    try {
+        res.json(getAdminPublisherProfile());
+    } catch (err) {
+        console.error('Admin get publisher profile error:', err);
+        res.status(500).json({ error: 'Failed to fetch publisher profile.' });
+    }
+});
+
+/**
+ * PUT /api/admin/publisher-profile
+ */
+router.put('/publisher-profile', (req, res) => {
+    try {
+        const profile = updateAdminPublisherProfile(req.body || {});
+        res.json({ success: true, profile });
+    } catch (err) {
+        console.error('Admin update publisher profile error:', err);
+        res.status(500).json({ error: 'Failed to update publisher profile.' });
+    }
+});
+
+/**
+ * POST /api/admin/publisher-profile/editor-image
+ */
+router.post('/publisher-profile/editor-image', editorialUpload.single('image'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'Image file is required.' });
+        }
+        const image_url = `/uploads/editorial/${req.file.filename}`;
+        res.json({ success: true, image_url });
+    } catch (err) {
+        console.error('Admin publisher editor image upload error:', err);
+        res.status(500).json({ error: err.message || 'Failed to upload editor image.' });
     }
 });
 
