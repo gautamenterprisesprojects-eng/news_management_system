@@ -2115,6 +2115,17 @@ select.form-input {
     background: var(--accent-orange-light);
 }
 
+.multi-upload-zone.upload-required-flash {
+    border-color: #dc2626;
+    background: rgba(220, 38, 38, 0.08);
+    animation: upload-required-pulse 0.35s ease-in-out 3;
+}
+
+@keyframes upload-required-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.01); }
+}
+
 .upload-icon-svg {
     color: var(--text-muted);
     margin-bottom: 4px;

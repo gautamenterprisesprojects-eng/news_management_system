@@ -110,10 +110,13 @@ router.post('/news', upload.array('images', 10), async (req, res) => {
         if (!headline || !body || !category) {
             return res.status(400).json({ error: 'Headline, body, and category are required.' });
         }
+        if (!req.files || req.files.length < 1) {
+            return res.status(400).json({ error: 'At least one photo is required to submit news.' });
+        }
 
         // Use first uploaded image as primary (backward compat)
-        const firstImage = req.files && req.files.length > 0 ? req.files[0] : null;
-        const imagePath = firstImage ? `/uploads/${firstImage.filename}` : null;
+        const firstImage = req.files[0];
+        const imagePath = `/uploads/${firstImage.filename}`;
 
         const assignedSubEditor = findAssignedSubEditor(req.user.id, city);
         const subEditorStatus = assignedSubEditor ? 'pending' : 'direct';

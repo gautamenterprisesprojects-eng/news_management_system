@@ -71,8 +71,8 @@ function renderReporterSubmitTab() {
             <!-- Multi-image upload -->
             <div class="form-group">
                 <label class="form-label">
-                    ${icon('photos', 14)} ${t('reporter.image') || 'Images'}
-                    <span style="font-size:0.75rem;color:var(--text-secondary);font-weight:400;margin-left:6px;">(${t('reporter.image_multi_hint') || 'Up to 10 photos'})</span>
+                    ${icon('photos', 14)} ${t('reporter.image') || 'Images'} <span style="color:var(--accent-orange);">*</span>
+                    <span style="font-size:0.75rem;color:var(--text-secondary);font-weight:400;margin-left:6px;">(${t('reporter.image_multi_hint')})</span>
                 </label>
 
                 <!-- Drop zone -->
@@ -196,6 +196,15 @@ async function submitNews(e) {
 
     if (!body || !category) {
         showToast(t('common.required'), 'error');
+        return;
+    }
+    if (_selectedFiles.length < 1) {
+        showToast(t('reporter.image_required'), 'error');
+        const zone = document.getElementById('multiImageUploadArea');
+        if (zone) {
+            zone.classList.add('upload-required-flash');
+            setTimeout(() => zone.classList.remove('upload-required-flash'), 1200);
+        }
         return;
     }
 
