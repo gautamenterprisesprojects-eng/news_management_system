@@ -1,5 +1,9 @@
 const crypto = require('crypto');
 const { getBaseUrl } = require('./externalNews');
+const { buildBundleEditorialRailForPageMint } = require('./publisherProfile');
+const { buildCliffDemo3PageMintRecipe } = require('./cliffDemo3PageMintRecipe');
+
+const CLIFF_FRONT_RAIL_LAYOUT = 'CliffFrontEditorRail8A';
 
 function detectLanguage(text) {
     return /[\u0900-\u097F]/.test(text || '') ? 'hi' : 'en';
@@ -127,12 +131,13 @@ function buildPageMintByline({ name, designation, place, language, photoUrl }) {
         designation: designation || '',
         organization,
         place: place || '',
-        photoUrl: photoUrl || null,
+        // Byline is text-only; editor photo belongs on CliffFrontEditorRail8A rail.
+        photoUrl: null,
         text
     };
 }
 
-function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex }) {
+function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex, isLead = false }) {
     const title = safeString(article.headline_rewritten || article.headline);
     const formattedBody = article.body_rewritten == null ? safeString(article.body) : String(article.body_rewritten);
     const mainBody = safeString(article.body);
@@ -216,6 +221,14 @@ function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex })
         id: article.id,
         bundleIndex,
         bundleOrder: bundleIndex + 1,
+        // Editor-marked lead/hero story for this bundle. PageMint places the
+        // FIRST article in `articles[]` into the front page's lead box
+        // (CliffFrontEditorRail8A story2 = page_lead), so buildNewspaperPayload
+        // below reorders the array to put this article at bundleIndex 0 when
+        // isLead is set — these two fields are informational/for debugging,
+        // not something PageMint reads to decide placement.
+        isLeadStory: Boolean(isLead),
+        role: isLead ? 'lead' : 'story',
         language,
         category: safeString(article.category),
         headline: title,
@@ -286,7 +299,7 @@ function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex })
     };
 }
 
-function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }) {
+function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl, leadNewsId = null }) {
     const sentAt = new Date().toISOString();
 
     // Unique identifiers so Page Maker can track and return the PDF
@@ -295,10 +308,29 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }
     const bundleId = generateBundleId();
     const editionId = generateEditionId();
     const pageMintTargetId = getPageMintTargetId();
+    const railAuthor = buildBundleEditorialRailForPageMint(targetUser, baseUrl);
+    const editorial_authors = railAuthor ? [railAuthor] : [];
+    const avatarUrl = railAuthor?.image_url || toAbsoluteUrl(targetUser.avatar_path, baseUrl);
+    const railPlace = railAuthor?.location
+        || targetUser.print_place_name
+        || targetUser.district
+        || targetUser.city
+        || '';
+    const railDesignation = railAuthor?.designation
+        || targetUser.print_designation
+        || targetUser.post
+        || '';
+    // cliffdemo3 only: full manual PageMint recipe so headless does not guess fonts/fit/subheads/PDF rules.
+    const pageMintRecipe = String(pageMintTargetId).trim().toLowerCase() === 'cliffdemo3'
+        ? buildCliffDemo3PageMintRecipe()
+        : null;
 
     return {
         source: 'NMS',
         sentAt,
+        layout: CLIFF_FRONT_RAIL_LAYOUT,
+        frontPageLayout: CLIFF_FRONT_RAIL_LAYOUT,
+        ...(pageMintRecipe ? { pageMintRecipe } : {}),
 
         // --- Tracking identifiers (required by Page Maker) ---
         job_id: jobId,
@@ -308,21 +340,34 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }
         pagemint_user_id: pageMintTargetId,
         pagemint_target_id: pageMintTargetId,
 
+        // --- Front-page left rail (CliffFrontEditorRail8A) — bundle sender ---
+        editorial_authors,
+        editorial_author_name: railAuthor?.name || '',
+        editorial_author_image_url: railAuthor?.image_url || '',
+        editorial_author_designation: railAuthor?.designation || '',
+        city: railAuthor?.city || railPlace,
+
         // --- Target user info for page layout/masthead ---
         targetUser: {
             id: targetUser.id,
             pagemintId: pageMintTargetId,
             externalId: pageMintTargetId,
             role: targetUser.role,
+            name: railAuthor?.name || targetUser.name_hi || targetUser.full_name || '',
             nameHi: targetUser.name_hi || targetUser.full_name || '',
             nameEn: targetUser.name_en || targetUser.full_name || '',
             fullName: targetUser.full_name || '',
-            post: targetUser.print_designation || targetUser.post || '',
-            printDesignation: targetUser.print_designation || targetUser.post || '',
-            printPlaceName: targetUser.print_place_name || '',
+            post: railDesignation,
+            printDesignation: railDesignation,
+            printPlaceName: targetUser.print_place_name || railPlace,
             district: targetUser.district || targetUser.city || '',
-            place: targetUser.print_place_name || targetUser.district || targetUser.city || '',
-            avatarUrl: toAbsoluteUrl(targetUser.avatar_path, baseUrl)
+            place: railPlace,
+            avatarUrl,
+            imageUrl: avatarUrl,
+            image_url: avatarUrl,
+            designation: railDesignation,
+            title: railDesignation,
+            location: railPlace
         },
 
         // --- Callback: Page Maker posts generated PDF back here ---
@@ -348,13 +393,23 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl }
         },
 
         count: articles.length,
-        articles: articles.map((article, index) => buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex: index })),
+        articles: articles.map((article, index) => buildPageMintArticle({
+            article,
+            imagesByNewsId,
+            baseUrl,
+            bundleIndex: index,
+            isLead: leadNewsId != null && String(article.id) === String(leadNewsId)
+        })),
         meta: {
-            schemaVersion: 'nms-pagemint-v2',
+            schemaVersion: pageMintRecipe ? 'nms-pagemint-v3-manual-recipe' : 'nms-pagemint-v2-rail8a',
+            layout: CLIFF_FRONT_RAIL_LAYOUT,
+            editorial_authors,
+            leadNewsId: leadNewsId ?? null,
             count: articles.length,
             articleIds: articles.map(article => article.id),
             mixedCategories: new Set(articles.map(article => safeString(article.category))).size > 1,
-            mixedLanguages: new Set(articles.map(article => detectLanguage(`${article.headline_rewritten || article.headline || ''}\n${article.body_rewritten || article.body || ''}`))).size > 1
+            mixedLanguages: new Set(articles.map(article => detectLanguage(`${article.headline_rewritten || article.headline || ''}\n${article.body_rewritten || article.body || ''}`))).size > 1,
+            ...(pageMintRecipe ? { pageMintRecipe } : {})
         }
     };
 }

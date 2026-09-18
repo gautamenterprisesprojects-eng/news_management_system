@@ -16,6 +16,41 @@ const {
     prepareArticlesForRawPageMint
 } = require('../services/newspaperGenerator');
 const { rewriteAndCachePageMintBundle, queuePageMintRewriteForNews } = require('../services/pageMintRewriteCache');
+const { sendPushToEditors } = require('../services/pushNotifications');
+
+function toHindiDigits(value) {
+    const digits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
+    return String(value).replace(/\d/g, digit => digits[Number(digit)]);
+}
+
+function formatHindiNotificationTime(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('hi-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+    }).format(date);
+
+    return toHindiDigits(parts.replace('am', 'पूर्वाह्न').replace('pm', 'अपराह्न'));
+}
+
+/**
+ * Places `leadId` first in `ids` (if present) so it lands in PageMint's
+ * front-page lead box — bundle order IS placement order, PageMint reads no
+ * separate "lead" field. Returns a new array; `ids` order is preserved for
+ * everything else. No-op when leadId is absent or not part of `ids`.
+ */
+function reorderWithLeadFirst(ids, leadId) {
+    if (leadId == null) return ids;
+    const leadKey = String(leadId);
+    const rest = ids.filter(id => String(id) !== leadKey);
+    if (rest.length === ids.length) return ids; // leadId wasn't in the selection
+    const lead = ids.find(id => String(id) === leadKey);
+    return [lead, ...rest];
+}
 
 // All editor routes require editor role
 router.use(verifyToken, requireRole('editor'));
@@ -83,11 +118,11 @@ function jsonText(value) {
     return JSON.stringify(value ?? null);
 }
 
-function insertPageMintBundleRecord({ targetUser, newsIds, payload }) {
+function insertPageMintBundleRecord({ targetUser, newsIds, payload, leadNewsId = null }) {
     queryRun(
         `INSERT INTO pagemint_bundles
-         (target_user_id, target_role, job_id, bundle_id, edition_id, news_ids_json, original_payload_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (target_user_id, target_role, job_id, bundle_id, edition_id, news_ids_json, original_payload_json, lead_news_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             targetUser.id,
             targetUser.role,
@@ -95,7 +130,8 @@ function insertPageMintBundleRecord({ targetUser, newsIds, payload }) {
             payload.bundle_id,
             payload.edition_id,
             jsonText(newsIds),
-            jsonText(payload)
+            jsonText(payload),
+            leadNewsId ?? null
         ]
     );
 }
@@ -289,7 +325,25 @@ function countApiTargetRawNews(target) {
     `, [target.id])?.c || 0;
 }
 
-function runPageMintRawBundleJob({ payload, newsIds, placeholders }) {
+/**
+ * Push notification to all active editors -- same channel/shape as a new
+ * reporter submission ("नई खबर आई") -- confirming a bundle actually reached
+ * PageMint. Fire-and-forget: never blocks or fails the background job.
+ */
+function notifyEditorsBundleSent({ targetUser, payload }) {
+    const targetName = targetUser?.name_hi || targetUser?.full_name || 'PageMint';
+    const sentAt = formatHindiNotificationTime();
+    sendPushToEditors({
+        title: '📰 बंडल PageMint को भेजा गया',
+        body: `${targetName} के लिए ${payload.count} खबरों का बंडल PageMint को भेज दिया गया।\nJob: ${payload.job_id}\nसमय: ${sentAt}`,
+        url: '/#/editor',
+        jobId: payload.job_id,
+        bundleId: payload.bundle_id,
+        tag: `pagemint-sent-${payload.job_id}`
+    }).catch(err => console.error('Editor push notification (bundle sent) error:', err));
+}
+
+function runPageMintRawBundleJob({ payload, newsIds, placeholders, targetUser }) {
     setImmediate(async () => {
         let stage = 'rewrite';
         try {
@@ -318,6 +372,8 @@ function runPageMintRawBundleJob({ payload, newsIds, placeholders }) {
                 console.error('Raw PageMint bundle delivery skipped:', delivery.error || 'not delivered');
                 return;
             }
+
+            notifyEditorsBundleSent({ targetUser, payload: rawPayload });
 
             console.log('Raw PageMint bundle sent (no AI rewrite):', {
                 job_id: rawPayload.job_id,
@@ -353,6 +409,8 @@ function runPageMintBundleJob({ targetUser, payload, newsIds, placeholders }) {
                 `UPDATE news SET newspaper_sent_at = datetime('now', 'localtime') WHERE id IN (${placeholders})`,
                 newsIds
             );
+
+            notifyEditorsBundleSent({ targetUser, payload: rewriteResult.payload });
 
             console.log('Newspaper generator background bundle sent:', {
                 job_id: rewriteResult.payload.job_id,
@@ -654,12 +712,19 @@ router.get('/api-targets/:id/pdfs', (req, res) => {
  */
 router.post('/newspaper-generator/raw-bundle', async (req, res) => {
     try {
-        const newsIds = Array.isArray(req.body.news_ids)
+        let newsIds = Array.isArray(req.body.news_ids)
             ? req.body.news_ids.map(Number).filter(Number.isInteger)
             : [Number(req.body.news_id)].filter(Number.isInteger);
         if (newsIds.length < 1) {
             return res.status(400).json({ error: 'news_id is required.' });
         }
+
+        // Optional: editor marked one selected story as the lead/hero news.
+        // Reorder so it is sent first -- bundle order is what PageMint uses
+        // to fill the front page's lead box (see reorderWithLeadFirst above).
+        const leadNewsIdRaw = Number(req.body.lead_news_id);
+        const leadNewsId = Number.isInteger(leadNewsIdRaw) && leadNewsIdRaw > 0 ? leadNewsIdRaw : null;
+        newsIds = reorderWithLeadFirst(newsIds, leadNewsId);
 
         const newsRows = newsIds.map(id => queryGet('SELECT * FROM news WHERE id = ?', [id]));
         if (newsRows.some(row => !row || row.status !== 'raw')) {
@@ -717,7 +782,8 @@ router.post('/newspaper-generator/raw-bundle', async (req, res) => {
             targetUser,
             articles: prepareArticlesForRawPageMint(articles),
             imagesByNewsId,
-            baseUrl: getBaseUrl(req)
+            baseUrl: getBaseUrl(req),
+            leadNewsId
         });
         payload.meta = {
             ...(payload.meta || {}),
@@ -725,8 +791,8 @@ router.post('/newspaper-generator/raw-bundle', async (req, res) => {
             source: 'NMS_RAW'
         };
 
-        insertPageMintBundleRecord({ targetUser, newsIds, payload });
-        runPageMintRawBundleJob({ payload, newsIds, placeholders });
+        insertPageMintBundleRecord({ targetUser, newsIds, payload, leadNewsId });
+        runPageMintRawBundleJob({ payload, newsIds, placeholders, targetUser });
 
         res.json({
             success: true,
@@ -735,7 +801,8 @@ router.post('/newspaper-generator/raw-bundle', async (req, res) => {
             job_id: payload.job_id,
             bundle_id: payload.bundle_id,
             target_user_id: targetUser.id,
-            target_name: targetUser.full_name
+            target_name: targetUser.full_name,
+            lead_news_id: leadNewsId
         });
     } catch (err) {
         console.error('Raw newspaper generator bundle error:', err);
@@ -746,7 +813,7 @@ router.post('/newspaper-generator/raw-bundle', async (req, res) => {
 router.post('/newspaper-generator/bundle', async (req, res) => {
     try {
         const targetUserId = Number(req.body.target_user_id || req.body.sub_editor_id);
-        const newsIds = Array.isArray(req.body.news_ids)
+        let newsIds = Array.isArray(req.body.news_ids)
             ? req.body.news_ids.map(Number).filter(Number.isInteger)
             : [];
 
@@ -756,6 +823,13 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
         if (newsIds.length < 1) {
             return res.status(400).json({ error: 'Select at least 1 AI rewritten processed news item for the newspaper generator.' });
         }
+
+        // Optional: editor marked one selected story as the lead/hero news.
+        // Reorder so it is sent first -- bundle order is what PageMint uses
+        // to fill the front page's lead box (see reorderWithLeadFirst above).
+        const leadNewsIdRaw = Number(req.body.lead_news_id);
+        const leadNewsId = Number.isInteger(leadNewsIdRaw) && leadNewsIdRaw > 0 ? leadNewsIdRaw : null;
+        newsIds = reorderWithLeadFirst(newsIds, leadNewsId);
 
         const targetUser = queryGet(`
             SELECT id, full_name, name_hi, name_en, post, district, city, role, is_api_enabled, print_designation, print_place_name, avatar_path
@@ -833,9 +907,10 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
             targetUser,
             articles,
             imagesByNewsId,
-            baseUrl: getBaseUrl(req)
+            baseUrl: getBaseUrl(req),
+            leadNewsId
         });
-        insertPageMintBundleRecord({ targetUser, newsIds, payload });
+        insertPageMintBundleRecord({ targetUser, newsIds, payload, leadNewsId });
         runPageMintBundleJob({ targetUser, payload, newsIds, placeholders });
 
         res.json({

@@ -251,7 +251,11 @@ async function initDatabase() {
             bundle_id: 'TEXT',
             edition_id: 'TEXT',
             status: 'TEXT'
-        }
+        },
+        // lead_news_id: the news.id the editor marked as the lead/hero story
+        // for this bundle (placed first so PageMint's front-page lead box
+        // gets it). NULL when no lead was chosen (falls back to send order).
+        pagemint_bundles: { lead_news_id: 'INTEGER' }
     };
     db.transaction(() => {
         for (const [table, columns] of Object.entries(additions)) {

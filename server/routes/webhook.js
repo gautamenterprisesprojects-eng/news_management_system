@@ -6,6 +6,26 @@ const fs = require('fs');
 const { pdfsDir } = require('../storage');
 const { queryRun, queryGet, queryAll } = require('../db/init');
 const { verifyToken, requireRole } = require('../middleware/auth');
+const { sendPushToEditors } = require('../services/pushNotifications');
+
+function toHindiDigits(value) {
+    const digits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
+    return String(value).replace(/\d/g, digit => digits[Number(digit)]);
+}
+
+function formatHindiNotificationTime(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('hi-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+    }).format(date);
+
+    return toHindiDigits(parts.replace('am', 'पूर्वाह्न').replace('pm', 'अपराह्न'));
+}
 
 if (!fs.existsSync(pdfsDir)) {
     fs.mkdirSync(pdfsDir, { recursive: true });
@@ -59,7 +79,7 @@ router.post('/newspaper-pdf', verifyWebhookKey, upload.single('pdf'), (req, res)
         }
 
         // Verify target user exists
-        const user = queryGet('SELECT id FROM users WHERE id = ?', [targetUserId]);
+        const user = queryGet('SELECT id, full_name, name_hi, role FROM users WHERE id = ?', [targetUserId]);
         if (!user) {
             // Cleanup the file if user not found
             fs.unlinkSync(req.file.path);
@@ -90,6 +110,22 @@ router.post('/newspaper-pdf', verifyWebhookKey, upload.single('pdf'), (req, res)
                 [jobId, jobId, bundleId, bundleId]
             );
         }
+
+        // Push notification to editors -- same channel/shape as a new reporter
+        // submission ("नई खबर आई") -- confirming the generated PDF is back
+        // from PageMint. Fire-and-forget: never blocks the webhook response
+        // PageMint is waiting on.
+        const targetName = user.name_hi || user.full_name || `User #${targetUserId}`;
+        const receivedAt = formatHindiNotificationTime();
+        sendPushToEditors({
+            title: '✅ PDF तैयार है',
+            body: `${targetName} का PageMint PDF बनकर वापस आ गया।${jobId ? `\nJob: ${jobId}` : ''}\nसमय: ${receivedAt}`,
+            url: '/#/editor',
+            jobId,
+            bundleId,
+            pdfUrl,
+            tag: `pagemint-pdf-${jobId || bundleId || targetUserId}`
+        }).catch(err => console.error('Editor push notification (PDF received) error:', err));
 
         res.json({ success: true, message: 'PDF received and stored successfully.', pdfUrl });
     } catch (error) {

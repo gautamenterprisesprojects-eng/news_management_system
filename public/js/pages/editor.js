@@ -1978,6 +1978,10 @@ let _selectedApiTargetId = null;
 let _selectedApiTargetName = '';
 let _selectedApiNews = new Set();
 let _selectedApiRawNews = new Set();
+// Single news id (from either list) marked as the lead/hero story for the
+// next bundle send. Only one at a time; cleared whenever the selection or
+// target changes so a stale lead id can never leak into a new bundle.
+let _leadApiNewsId = null;
 let _apiNewsCache = [];
 let _apiRawNewsCache = [];
 let _apiNewsSort = 'latest';
@@ -2086,6 +2090,7 @@ function backToApiTargets() {
     _selectedApiTargetName = '';
     _selectedApiNews.clear();
     _selectedApiRawNews.clear();
+    _leadApiNewsId = null;
     _apiNewsCache = [];
     _apiRawNewsCache = [];
 }
@@ -2097,6 +2102,7 @@ async function selectApiTarget(id, name) {
     document.getElementById('apiNewsSelection').classList.remove('hidden');
     _selectedApiNews.clear();
     _selectedApiRawNews.clear();
+    _leadApiNewsId = null;
     updateApiBundleToolbar();
     const title = document.getElementById('apiSelectedTargetTitle');
     if (title) title.textContent = `${name} — PageMint API (RAW + AI)`;
@@ -2156,15 +2162,24 @@ function renderApiNewsCard(news, { raw = false } = {}) {
     const chkPrefix = raw ? 'api-raw-chk' : 'api-chk';
     const headline = raw ? news.headline : (news.headline_rewritten || news.headline);
     const badge = raw ? `<span class="status-badge raw" style="font-size:10px;margin-right:6px;">RAW</span>` : '';
+    const isLead = _leadApiNewsId === news.id;
+    const leadCardStyle = isLead
+        ? 'border:2px solid var(--accent-orange, #e67e22); background:rgba(230,126,34,0.06);'
+        : '';
     return `
-        <div class="card api-news-card" onclick="${toggleFn}(${news.id})" id="api-${raw ? 'raw-' : ''}news-card-${news.id}" style="padding:12px; display:flex; gap:12px; cursor:pointer;">
+        <div class="card api-news-card" onclick="${toggleFn}(${news.id})" id="api-${raw ? 'raw-' : ''}news-card-${news.id}" style="padding:12px; display:flex; gap:12px; cursor:pointer; ${leadCardStyle}">
             <input type="checkbox" id="${chkPrefix}-${news.id}" style="margin-top:4px;" onclick="event.stopPropagation(); ${toggleFn}(${news.id})" ${selectedSet.has(news.id) ? 'checked' : ''}>
             <div style="flex:1;">
-                <div style="font-weight:bold; font-size:0.95rem; line-height:1.4;">${badge}<span style="color:var(--accent-orange);margin-right:4px;">#${news.id}</span>${escapeHtml(headline)}</div>
+                <div style="font-weight:bold; font-size:0.95rem; line-height:1.4;">${badge}${isLead ? '<span style="font-size:10px;margin-right:6px;color:var(--accent-orange,#e67e22);">⭐ लीड न्यूज़</span>' : ''}<span style="color:var(--accent-orange);margin-right:4px;">#${news.id}</span>${escapeHtml(headline)}</div>
                 <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:6px;">
                     ${escapeHtml(news.reporter_name || '')} • ${escapeHtml(news.city || '')} • ${formatDate(news.processed_at || news.created_at)}
                 </div>
             </div>
+            <button type="button" class="btn-icon" title="${isLead ? 'लीड न्यूज़ हटाएं' : 'मुख्य/लीड न्यूज़ बनाएं (PageMint front page)'}"
+                onclick="event.stopPropagation(); toggleLeadApiNews(${news.id}, ${raw})"
+                style="align-self:flex-start; background:none; border:none; font-size:18px; cursor:pointer; padding:2px 6px; opacity:${isLead ? '1' : '0.35'};">
+                ⭐
+            </button>
         </div>
     `;
 }
@@ -2215,6 +2230,7 @@ function toggleApiNewsSelection(id) {
     if (_selectedApiNews.has(id)) {
         _selectedApiNews.delete(id);
         if (chk) chk.checked = false;
+        if (_leadApiNewsId === id) { _leadApiNewsId = null; renderApiNewsList(); return; }
     } else {
         _selectedApiNews.add(id);
         if (chk) chk.checked = true;
@@ -2238,6 +2254,11 @@ function toggleSelectAllApiNews(checked) {
         const chk = document.getElementById(`api-chk-${n.id}`);
         if (chk) chk.checked = checked;
     });
+    if (!checked && _leadApiNewsId != null && !_selectedApiNews.has(_leadApiNewsId) && !_selectedApiRawNews.has(_leadApiNewsId)) {
+        _leadApiNewsId = null;
+        renderApiNewsList();
+        return;
+    }
     updateApiBundleToolbar();
 }
 
@@ -2246,6 +2267,7 @@ function toggleApiRawNewsSelection(id) {
     if (_selectedApiRawNews.has(id)) {
         _selectedApiRawNews.delete(id);
         if (chk) chk.checked = false;
+        if (_leadApiNewsId === id) { _leadApiNewsId = null; renderApiNewsList(); return; }
     } else {
         _selectedApiRawNews.add(id);
         if (chk) chk.checked = true;
@@ -2260,6 +2282,22 @@ function toggleApiRawNewsSelection(id) {
             && sortedNews.every(n => _selectedApiNews.has(n.id));
     }
     updateApiBundleToolbar();
+}
+
+/**
+ * Marks (or unmarks) a single news item as the lead/hero story for the next
+ * bundle send. Only one at a time, across either list. Setting a lead also
+ * selects its checkbox (a lead must be part of what's actually sent).
+ */
+function toggleLeadApiNews(id, raw) {
+    if (_leadApiNewsId === id) {
+        _leadApiNewsId = null;
+    } else {
+        _leadApiNewsId = id;
+        const selectedSet = raw ? _selectedApiRawNews : _selectedApiNews;
+        selectedSet.add(id);
+    }
+    renderApiNewsList();
 }
 
 function updateApiBundleToolbar() {
@@ -2294,12 +2332,15 @@ async function sendApiRawNewspaperBundle() {
         btn.textContent = 'भेज रहा है...';
     }
 
+    const leadNewsId = _selectedApiRawNews.has(_leadApiNewsId) ? _leadApiNewsId : null;
+
     try {
         const res = await api('/editor/newspaper-generator/raw-bundle', {
             method: 'POST',
             body: JSON.stringify({
                 target_user_id: _selectedApiTargetId,
-                news_ids: Array.from(_selectedApiRawNews)
+                news_ids: Array.from(_selectedApiRawNews),
+                lead_news_id: leadNewsId
             })
         });
 
@@ -2308,6 +2349,7 @@ async function sendApiRawNewspaperBundle() {
         } else {
             showToast(res.message || `${name} को RAW bundle भेज दिया गया`, 'success');
             _selectedApiRawNews.clear();
+            _leadApiNewsId = null;
             await loadNewsForApiTarget();
         }
     } catch (err) {
@@ -2361,12 +2403,15 @@ async function sendApiNewspaperBundle() {
     btn.disabled = true;
     btn.textContent = 'भेज रहा है...';
 
+    const leadNewsId = _selectedApiNews.has(_leadApiNewsId) ? _leadApiNewsId : null;
+
     try {
         const res = await api('/editor/newspaper-generator/bundle', {
             method: 'POST',
             body: JSON.stringify({
                 target_user_id: _selectedApiTargetId,
-                news_ids: Array.from(_selectedApiNews)
+                news_ids: Array.from(_selectedApiNews),
+                lead_news_id: leadNewsId
             })
         });
 
@@ -2377,6 +2422,7 @@ async function sendApiNewspaperBundle() {
         } else {
             showToast(res.message, 'success');
             _selectedApiNews.clear();
+            _leadApiNewsId = null;
             updateApiBundleToolbar();
             await loadNewsForApiTarget();
         }
