@@ -23,6 +23,7 @@ function renderSubEditor() {
     `;
     applyLanguage();
     renderSubEditorTab(subEditorTab);
+    maybeShowReporterWelcome();
 }
 
 async function renderSubEditorTab(tab) {
@@ -43,6 +44,11 @@ async function renderSubEditorTab(tab) {
 
         if (subEditorTab === 'pdfs') {
             loadSubEditorPdfs(container);
+            return;
+        }
+
+        if (subEditorTab === 'approved') {
+            await loadSubEditorApprovedNews(container);
             return;
         }
 
@@ -129,6 +135,52 @@ async function renderSubEditorTab(tab) {
             </div>
         `).join('');
         applyLanguage();
+    } catch (err) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
+    }
+}
+
+async function loadSubEditorApprovedNews(container) {
+    try {
+        const data = await api('/sub-editor/news/approved');
+        const news = data.news || [];
+        if (!news.length) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon-svg">${icon('check-circle', 40)}</div>
+                    <div class="empty-text">यहां कोई स्वीकृत खबर नहीं है</div>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = news.map(n => {
+            const fakeViews = computeFakeViews(n.id, n.published_at || n.forwarded_at || n.processed_at);
+            const reporterName = n.reporter_name_hi || n.reporter_name;
+            return `
+            <div class="card news-card">
+                <div class="news-card-header">
+                    ${n.image_path
+                        ? `<img class="news-card-thumb" src="${n.image_path}" alt="" onerror="this.style.display='none'">`
+                        : `<div class="news-card-thumb-placeholder">${icon('newspaper', 22)}</div>`
+                    }
+                    <div class="news-card-info">
+                        <div class="news-card-headline"><span style="color:var(--accent-orange);margin-right:6px;">#${n.id}</span>${escapeHtml(n.headline_rewritten || n.headline)}</div>
+                    </div>
+                </div>
+                <div class="news-card-meta">
+                    <span class="status-badge ${n.status}">${t('editor.status_' + n.status) || n.status.toUpperCase()}</span>
+                    <span class="news-card-meta-item">${icon('folder', 12)} ${n.category}</span>
+                    ${n.city ? `<span class="news-card-meta-item">${icon('pin', 12)} ${n.city}</span>` : ''}
+                    ${reporterName ? `<span class="news-card-meta-item">${icon('user', 12)} ${escapeHtml(reporterName)}</span>` : ''}
+                    <span class="news-card-meta-item">${icon('clock', 12)} ${formatDate(n.published_at || n.forwarded_at || n.processed_at)}</span>
+                </div>
+                ${renderReporterExternalLinks(n, `<span class="news-card-meta-item fake-view-badge">${icon('eye', 12)} ${formatFakeViews(fakeViews)} व्यूज</span>`)}
+            </div>
+        `;
+        }).join('');
+
+        checkFakeViewMilestones(news);
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
     }

@@ -520,8 +520,11 @@ router.get('/news/forwarded', (req, res) => {
                    SUBSTR(COALESCE(n.body_rewritten, n.body), 1, 200) as body,
                    n.category, n.city, n.status, n.image_path, n.selected_image_path,
                    n.forwarded_at, n.published_at, n.external_hindi_url, n.external_english_url,
-                   u.full_name as reporter_name
-            FROM news n JOIN users u ON n.reporter_id = u.id
+                   u.full_name as reporter_name,
+                   ${subEditorSelectFields()}
+            FROM news n
+            JOIN users u ON n.reporter_id = u.id
+            LEFT JOIN users se ON se.id = n.sub_editor_id
             WHERE n.forwarded_at IS NOT NULL
             ORDER BY n.forwarded_at DESC
         `);

@@ -114,6 +114,7 @@ function renderBottomNav(role, activeTab) {
                 { id: 'submit', icon: 'square-pen', label: 'reporter.nav_submit' },
                 { id: 'pending', icon: 'inbox', label: 'लंबित' },
                 { id: 'forwarded', icon: 'send', label: 'भेजी' },
+                { id: 'approved', icon: 'check-circle-2', label: 'स्वीकृत' },
                 { id: 'rejected', icon: 'x-circle', label: 'रिजेक्ट' },
                 { id: 'ads', icon: 'badge-indian-rupee', label: 'विज्ञापन' }
             ];

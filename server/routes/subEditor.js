@@ -10,6 +10,28 @@ const { sendPushToEditors } = require('../services/pushNotifications');
 
 router.use(verifyToken, requireRole('sub_editor'));
 
+// Keep in sync with REPORTER_TERMS_VERSION in server/routes/reporter.js -- both
+// roles accept the same terms text and share the terms_acceptances audit table.
+const SUB_EDITOR_TERMS_VERSION = 'v1.0-2026-09-19';
+
+/**
+ * POST /api/sub-editor/terms/accept
+ * Same append-only audit record as the reporter flow (terms_acceptances table).
+ */
+router.post('/terms/accept', (req, res) => {
+    try {
+        const user = queryGet('SELECT username, full_name FROM users WHERE id = ?', [req.user.id]);
+        queryRun(
+            'INSERT INTO terms_acceptances (user_id, username, full_name, terms_version, ip_address) VALUES (?, ?, ?, ?, ?)',
+            [req.user.id, user?.username || null, user?.full_name || null, SUB_EDITOR_TERMS_VERSION, req.ip || null]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Sub-editor terms acceptance record error:', err);
+        res.status(500).json({ error: 'Failed to record acceptance.' });
+    }
+});
+
 function toHindiDigits(value) {
     const digits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
     return String(value).replace(/\d/g, digit => digits[Number(digit)]);
@@ -159,6 +181,37 @@ router.get('/news/rejected', (req, res) => {
     } catch (err) {
         console.error('Sub-editor rejected news error:', err);
         res.status(500).json({ error: 'Failed to fetch rejected news.' });
+    }
+});
+
+/**
+ * GET /api/sub-editor/news/approved
+ * News the main editor has processed/forwarded/published -- both self-submitted
+ * (reporter_id = sub_editor_id) and news this sub-editor forwarded from an
+ * assigned reporter. Uses the same status filter and the same
+ * published_at/forwarded_at/processed_at anchor fields as the reporter's own
+ * /reporter/news/approved, so the client-side fake view counter produces an
+ * identical number for the same news.id on both screens.
+ */
+router.get('/news/approved', (req, res) => {
+    try {
+        const news = queryAll(`
+            SELECT n.id, n.headline, n.headline_rewritten, n.status, n.category, n.city,
+                   n.processed_at, n.forwarded_at, n.published_at,
+                   n.external_hindi_url, n.external_english_url,
+                   COALESCE(n.selected_image_path, n.image_path) as image_path,
+                   CASE WHEN n.reporter_id = n.sub_editor_id THEN NULL ELSE u.full_name END as reporter_name,
+                   CASE WHEN n.reporter_id = n.sub_editor_id THEN NULL ELSE u.name_hi END as reporter_name_hi
+            FROM news n
+            JOIN users u ON u.id = n.reporter_id
+            WHERE n.sub_editor_id = ? AND n.status IN ('processed','forwarded','published')
+            ORDER BY COALESCE(n.published_at, n.forwarded_at, n.processed_at) DESC
+        `, [req.user.id]);
+
+        res.json({ news });
+    } catch (err) {
+        console.error('Sub-editor get approved news error:', err);
+        res.status(500).json({ error: 'Failed to fetch approved news.' });
     }
 });
 

@@ -554,9 +554,6 @@ async function openProcessedNewsDetail(id) {
                 ${icon('check', 14)} ${t('editor.approve_btn')}
             </button>
         ` : `
-            <button class="btn btn-secondary" style="flex:1;" onclick="saveProcessedNewsEdits(${id})">
-                ${icon('check', 14)} Save Edit
-            </button>
             <button class="btn btn-primary" style="flex:1;" onclick="forwardEditedNews(${id}, this)">
                 ${icon('send', 14)} ${t('editor.forward_card_btn')}
             </button>
@@ -1689,6 +1686,7 @@ async function loadForwardedNews() {
                 <div class="news-card-meta">
                     <span class="status-badge ${n.status === 'published' ? 'processed' : 'forwarded'}">${n.status === 'published' ? t('editor.status_published') : t('editor.status_forwarded')}</span>
                     <span class="news-card-meta-item">${icon('user',12)} ${escapeHtml(n.reporter_name)}</span>
+                    ${n.sub_editor_name ? `<span class="news-card-meta-item">${icon('bot',12)} उप-संपादक: ${escapeHtml(n.sub_editor_name_hi || n.sub_editor_name)}</span>` : ''}
                     <span class="news-card-meta-item">${icon('clock',12)} ${formatDate(n.forwarded_at)}</span>
                 </div>
                 <div class="news-card-actions-row">

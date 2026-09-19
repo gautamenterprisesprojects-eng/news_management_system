@@ -193,7 +193,7 @@ router.post('/news', upload.array('images', 10), async (req, res) => {
 router.get('/news', (req, res) => {
     try {
         const news = queryAll(
-            'SELECT id, headline, status, category, city, created_at FROM news WHERE reporter_id = ? ORDER BY created_at DESC',
+            'SELECT id, headline, status, category, city, created_at, sub_editor_status FROM news WHERE reporter_id = ? ORDER BY created_at DESC',
             [req.user.id]
         );
 

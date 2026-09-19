@@ -197,8 +197,10 @@ function renderReporterTermsHtml() {
 }
 
 async function postReporterTermsAcceptance() {
+    const role = getCurrentUser()?.role;
+    const endpoint = role === 'sub_editor' ? '/sub-editor/terms/accept' : '/reporter/terms/accept';
     try {
-        await api('/reporter/terms/accept', { method: 'POST' });
+        await api(endpoint, { method: 'POST' });
     } catch (err) {
         console.error('Failed to record terms acceptance:', err);
     }
@@ -617,6 +619,7 @@ async function loadMyNews() {
                     <div class="news-card-headline"><span style="color:var(--accent-orange);margin-right:6px;">#${n.id}</span>${escapeHtml(n.headline)}</div>
                     <div class="news-card-meta">
                         <span class="status-badge ${n.status}">${t('editor.status_' + n.status) || n.status.toUpperCase()}</span>
+                        ${n.status === 'raw' && n.sub_editor_status === 'forwarded' ? `<span class="status-badge forwarded">${icon('check', 10)} उप-संपादक द्वारा स्वीकृत</span>` : ''}
                         <span class="news-card-meta-item">${icon('folder', 12)} ${n.category}</span>
                         ${n.city ? `<span class="news-card-meta-item">${icon('pin', 12)} ${n.city}</span>` : ''}
                         <span class="news-card-meta-item">${icon('clock', 12)} ${formatDate(n.created_at)}</span>
@@ -741,33 +744,45 @@ function formatFakeViews(n) {
     return n.toLocaleString('en-IN');
 }
 
-function fakeViewMilestoneKey(newsId, threshold) {
+function fakeViewMilestoneKey(threshold) {
     const uid = getCurrentUser()?.id || 'anon';
-    return `fv_ms_${uid}_${newsId}_${threshold}`;
+    return `fv_ms_${uid}_${threshold}`;
 }
 
 /**
- * After rendering the approved list, find any milestone thresholds each news
- * item has crossed that this device hasn't shown a popup for yet, and queue
- * them one at a time (oldest news / lowest threshold first).
+ * Milestones are a per-reporter achievement, not a per-article one: once a
+ * threshold has been celebrated, it never pops up again for that reporter no
+ * matter how many of their approved news items are also above it. Only the
+ * single best-performing article (highest current fake view count) is
+ * considered, so at most one popup queue is built per threshold.
  */
 function checkFakeViewMilestones(newsList) {
-    const queue = [];
+    let topNews = null;
+    let topViews = -1;
     for (const n of newsList) {
         const anchor = n.published_at || n.forwarded_at || n.processed_at;
         const views = computeFakeViews(n.id, anchor);
-        for (const threshold of FAKE_VIEW_MILESTONES) {
-            if (views < threshold) break;
-            const key = fakeViewMilestoneKey(n.id, threshold);
-            try {
-                if (!localStorage.getItem(key)) {
-                    queue.push({ newsId: n.id, headline: n.headline_rewritten || n.headline, threshold, key });
-                }
-            } catch { /* localStorage unavailable -- skip milestone popups silently */ }
+        if (views > topViews) {
+            topViews = views;
+            topNews = n;
         }
+    }
+    if (!topNews) return;
+
+    const queue = [];
+    for (const threshold of FAKE_VIEW_MILESTONES) {
+        if (topViews < threshold) break;
+        const key = fakeViewMilestoneKey(threshold);
+        try {
+            if (!localStorage.getItem(key)) {
+                queue.push({ headline: topNews.headline_rewritten || topNews.headline, threshold, key });
+            }
+        } catch { /* localStorage unavailable -- skip milestone popups silently */ }
     }
     if (queue.length) showNextFakeViewMilestone(queue);
 }
+
+const MS_BURST_POINTS = '150.0,5.0 174.0,44.7 212.9,19.4 217.3,65.6 263.4,59.6 247.3,103.1 291.4,117.7 258.0,150.0 291.4,182.3 247.3,196.9 263.4,240.4 217.3,234.4 212.9,280.6 174.0,255.3 150.0,295.0 126.0,255.3 87.1,280.6 82.7,234.4 36.6,240.4 52.7,196.9 8.6,182.3 42.0,150.0 8.6,117.7 52.7,103.1 36.6,59.6 82.7,65.6 87.1,19.4 126.0,44.7';
 
 function showNextFakeViewMilestone(queue) {
     const item = queue.shift();
@@ -775,18 +790,27 @@ function showNextFakeViewMilestone(queue) {
 
     const isComplete = item.threshold >= 100000;
     const viewsText = formatFakeViews(item.threshold);
-    const title = isComplete ? '🎉 1 लाख व्यूज पूरे हुए!' : '🎉 माइलस्टोन पूरा हुआ!';
+    const title = isComplete ? '1 लाख व्यूज पूरे हुए!' : 'माइलस्टोन पूरा हुआ!';
     const text = `आपकी खबर "${escapeHtml(item.headline || '')}" हमारी वेबसाइट, ऐप और सोशल मीडिया हैंडल्स -- Instagram, Facebook, LinkedIn और YouTube -- पर देखी जा रही है। इसे अब तक ${viewsText} व्यूज मिल चुके हैं। इस उपलब्धि के लिए बधाई!`;
 
     const html = `
-        <div class="confirm-overlay" id="fakeViewMilestoneDialog">
-            <div class="confirm-dialog" onclick="event.stopPropagation()">
-                <div class="confirm-icon">🎉</div>
-                <div class="confirm-title">${title}</div>
-                <div class="confirm-text">${text}</div>
-                <div class="confirm-actions">
-                    <button class="btn btn-primary" id="fakeViewMilestoneCloseBtn" style="flex:1;">बंद करें</button>
+        <div class="confirm-overlay ms-overlay" id="fakeViewMilestoneDialog">
+            <div class="ms-wrap" onclick="event.stopPropagation()">
+                <div class="ms-burst">
+                    <span class="ms-star ms-star-1">★</span>
+                    <span class="ms-star ms-star-2">★</span>
+                    <span class="ms-star ms-star-3">✦</span>
+                    <span class="ms-star ms-star-4">★</span>
+                    <span class="ms-star ms-star-5">✦</span>
+                    <svg class="ms-burst-svg" viewBox="0 0 300 300"><polygon points="${MS_BURST_POINTS}"/></svg>
+                    <div class="ms-burst-content">
+                        <div class="ms-popper">🎉</div>
+                        <div class="ms-burst-title">${title}</div>
+                        <div class="ms-burst-text">${text}</div>
+                    </div>
+                    <div class="ms-views-badge">${viewsText}<br>VIEWS!</div>
                 </div>
+                <button class="ms-close-btn" id="fakeViewMilestoneCloseBtn">बंद करें</button>
             </div>
         </div>
     `;
