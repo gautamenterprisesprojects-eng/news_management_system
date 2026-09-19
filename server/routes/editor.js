@@ -7,7 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const { queryAll, queryGet, queryRun } = require('../db/init');
 const { verifyToken, requireRole } = require('../middleware/auth');
 const { rewriteArticle } = require('../services/aiRewriter');
-const { resolveUpload, uploadsDir } = require('../storage');
+const { resolveUpload, uploadsDir, pdfsDir } = require('../storage');
 const { deliverForwardedNews, parseExternalNewsId } = require('../services/externalNews');
 const {
     buildNewspaperPayload,
@@ -705,6 +705,56 @@ router.get('/api-targets/:id/pdfs', (req, res) => {
     } catch (err) {
         console.error('Editor get target PDFs error:', err);
         res.status(500).json({ error: 'Failed to fetch PDFs.' });
+    }
+});
+
+/**
+ * POST /api/editor/api-pdfs/:id/approve
+ * Unlocks a PageMint-delivered PDF for its reporter/sub-editor -- until this,
+ * they only see it in a pending/locked state (see GET /webhook/my-pdfs).
+ */
+router.post('/api-pdfs/:id/approve', (req, res) => {
+    try {
+        const pdf = queryGet('SELECT id, status FROM api_pdfs WHERE id = ?', [req.params.id]);
+        if (!pdf) return res.status(404).json({ error: 'PDF not found.' });
+
+        queryRun(
+            `UPDATE api_pdfs SET status = 'approved', reviewed_by = ?, reviewed_at = datetime('now', 'localtime') WHERE id = ?`,
+            [req.user.id, pdf.id]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Editor approve PDF error:', err);
+        res.status(500).json({ error: 'Failed to approve PDF.' });
+    }
+});
+
+/**
+ * POST /api/editor/api-pdfs/:id/reject
+ * Deletes the underlying PDF file (it will never be needed) but keeps the
+ * api_pdfs row so the reporter/sub-editor's card can show a rejected message
+ * until it ages out through the normal retention cleanup.
+ */
+router.post('/api-pdfs/:id/reject', (req, res) => {
+    try {
+        const pdf = queryGet('SELECT id, pdf_url, status FROM api_pdfs WHERE id = ?', [req.params.id]);
+        if (!pdf) return res.status(404).json({ error: 'PDF not found.' });
+
+        if (pdf.pdf_url && pdf.pdf_url.startsWith('/uploads/pdfs/')) {
+            const target = path.resolve(pdfsDir, path.basename(pdf.pdf_url));
+            if (target.startsWith(pdfsDir + path.sep) && fs.existsSync(target)) {
+                fs.unlinkSync(target);
+            }
+        }
+
+        queryRun(
+            `UPDATE api_pdfs SET status = 'rejected', reviewed_by = ?, reviewed_at = datetime('now', 'localtime') WHERE id = ?`,
+            [req.user.id, pdf.id]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Editor reject PDF error:', err);
+        res.status(500).json({ error: 'Failed to reject PDF.' });
     }
 });
 

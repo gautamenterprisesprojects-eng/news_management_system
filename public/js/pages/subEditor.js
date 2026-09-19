@@ -610,25 +610,7 @@ async function loadSubEditorPdfs(container) {
             return;
         }
 
-        container.innerHTML = pdfs.map(pdf => {
-            const dateStr = new Date(pdf.created_at).toLocaleString('hi-IN');
-            return `
-                <div class="card" style="padding: 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 16px;">
-                    <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; color: var(--accent-orange);">
-                        ${icon('file', 32)}
-                    </div>
-                    <div style="flex: 1;">
-                        <div style="font-weight: 600; font-size: 1.05rem; color: var(--text-primary); word-break: break-all;">
-                            <a href="${pdf.pdf_url}" target="_blank" style="text-decoration:none; color:inherit;">${escapeHtml(pdf.filename || 'newspaper.pdf')}</a>
-                        </div>
-                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px;">${dateStr}</div>
-                    </div>
-                    <a href="${forceDownloadUrl(pdf.pdf_url, pdf.filename)}" download="${escapeHtml(pdf.filename || 'newspaper.pdf')}" class="btn btn-secondary btn-sm" style="display:flex; align-items:center; gap:6px;">
-                        ${icon('download', 16)} डाउनलोड
-                    </a>
-                </div>
-            `;
-        }).join('');
+        container.innerHTML = pdfs.map(pdf => renderApiPdfCard(pdf)).join('');
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-text">Error loading PDFs</div></div>`;
     }

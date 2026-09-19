@@ -2698,6 +2698,21 @@ async function sendApiBothNewspaperBundles() {
 /**
  * Full-screen view for 'More (अन्य)' Menu
  */
+function renderEditorMoreOptionCard({ onclick, iconName, iconBg, iconColor, title, subtitle, titleI18n }) {
+    return `
+        <div class="more-option-card" onclick="${onclick}">
+            <div class="more-option-icon" style="background:${iconBg}; color:${iconColor};">
+                ${icon(iconName, 22)}
+            </div>
+            <div class="more-option-text">
+                <div class="more-option-title"${titleI18n ? ` data-i18n="${titleI18n}"` : ''}>${title}</div>
+                <div class="more-option-subtitle">${subtitle}</div>
+            </div>
+            ${icon('chevron-right', 20)}
+        </div>
+    `;
+}
+
 function renderEditorMoreScreen() {
     const app = document.getElementById('app');
     app.innerHTML = `
@@ -2706,40 +2721,35 @@ function renderEditorMoreScreen() {
             <div class="split-pane-header" style="padding: 12px 16px; border-bottom: 1px solid var(--border-color);">
                 <h3 style="margin: 0;">अन्य विकल्प (More Options)</h3>
             </div>
-            
-            <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
-                <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 16px; cursor: pointer;" onclick="switchEditorPane('api')">
-                    <div style="background: var(--bg-secondary); padding: 12px; border-radius: 50%; color: var(--accent-blue);">
-                        ${icon('server', 24)}
-                    </div>
-                    <div style="flex: 1;">
-                        <div style="font-weight: 600; font-size: 1.1rem; color: var(--text-primary);">न्यूज़पेपर API जनरेटर</div>
-                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">रिपोर्टर्स और सब-एडिटर्स के लिए ऑटोमैटिक PDF जनरेट करें</div>
-                    </div>
-                    ${icon('chevron-right', 20)}
-                </div>
 
-                <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 16px; cursor: pointer;" onclick="switchEditorPane('pdfs')">
-                    <div style="background: var(--bg-secondary); padding: 12px; border-radius: 50%; color: var(--accent-orange);">
-                        ${icon('file-text', 24)}
-                    </div>
-                    <div style="flex: 1;">
-                        <div style="font-weight: 600; font-size: 1.1rem; color: var(--text-primary);">जनरेटेड PDFs (Generated PDFs)</div>
-                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">API द्वारा जनरेट की गई और अपलोड की गई PDF फाइलें देखें</div>
-                    </div>
-                    ${icon('chevron-right', 20)}
-                </div>
+            <div style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
+                ${renderEditorMoreOptionCard({
+                    onclick: "switchEditorPane('api')",
+                    iconName: 'user',
+                    iconBg: 'var(--accent-orange-light)',
+                    iconColor: 'var(--accent-orange)',
+                    title: 'संवाददाता पेज',
+                    subtitle: 'रिपोर्टर की खबरें चुनें और PageMint को PDF के लिए भेजें'
+                })}
 
-                <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 16px; cursor: pointer;" onclick="switchEditorPane('ads')">
-                    <div style="background: var(--bg-secondary); padding: 12px; border-radius: 50%; color: var(--success-color);">
-                        ${icon('dollar-sign', 24)}
-                    </div>
-                    <div style="flex: 1;">
-                        <div style="font-weight: 600; font-size: 1.1rem; color: var(--text-primary);" data-i18n="editor.ads_tab">${t('editor.ads_tab')}</div>
-                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">विज्ञापन प्रबंधित करें और स्वीकृत करें</div>
-                    </div>
-                    ${icon('chevron-right', 20)}
-                </div>
+                ${renderEditorMoreOptionCard({
+                    onclick: "switchEditorPane('pdfs')",
+                    iconName: 'download',
+                    iconBg: 'var(--accent-orange-light)',
+                    iconColor: 'var(--accent-orange)',
+                    title: 'PDF डाउनलोड करें',
+                    subtitle: 'जनरेट हुई PDF फाइलें देखें और डाउनलोड करें'
+                })}
+
+                ${renderEditorMoreOptionCard({
+                    onclick: "switchEditorPane('ads')",
+                    iconName: 'tag',
+                    iconBg: 'rgba(22, 163, 74, 0.12)',
+                    iconColor: 'var(--accent-green)',
+                    title: t('editor.ads_tab'),
+                    titleI18n: 'editor.ads_tab',
+                    subtitle: 'विज्ञापन प्रबंधित करें और स्वीकृत करें'
+                })}
             </div>
         </main>
         ${renderBottomNav('editor', 'more')}
@@ -2862,25 +2872,72 @@ async function loadPdfsForSelectedTarget() {
 
         container.innerHTML = pdfs.map(pdf => {
             const dateStr = new Date(pdf.created_at).toLocaleString('hi-IN');
+            const st = pdf.status === 'approved' || pdf.status === 'rejected' ? pdf.status : 'pending';
+
+            const badge = st === 'approved'
+                ? `<span class="status-badge processed">${icon('check', 10)} स्वीकृत</span>`
+                : st === 'rejected'
+                    ? `<span class="status-badge rejected">${icon('x', 10)} रिजेक्ट किया गया</span>`
+                    : `<span class="status-badge raw">${icon('clock', 10)} समीक्षा हेतु लंबित</span>`;
+
+            const actions = st === 'rejected' ? '' : `
+                <div class="news-card-actions-row" style="border-top:none; margin-top:10px; padding-top:0;">
+                    <a href="${pdf.pdf_url}" target="_blank" class="btn btn-secondary btn-xs">${icon('eye', 12)} देखें</a>
+                    <a href="${forceDownloadUrl(pdf.pdf_url, pdf.filename)}" download="${escapeHtml(pdf.filename || 'newspaper.pdf')}" class="btn btn-secondary btn-xs">${icon('download', 12)} डाउनलोड</a>
+                    ${st === 'pending' ? `
+                        <button type="button" class="btn btn-success btn-xs" onclick="approveApiPdf(${pdf.id}, this)">${icon('check', 12)} स्वीकृत करें</button>
+                        <button type="button" class="btn btn-danger btn-xs" onclick="rejectApiPdf(${pdf.id}, this)">${icon('x', 12)} रिजेक्ट करें</button>
+                    ` : ''}
+                </div>
+            `;
+
             return `
-                <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 16px;">
-                    <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; color: var(--accent-orange);">
-                        ${icon('file', 32)}
-                    </div>
-                    <div style="flex: 1;">
-                        <div style="font-weight: 600; font-size: 1.05rem; color: var(--text-primary); word-break: break-all;">
-                            <a href="${pdf.pdf_url}" target="_blank" style="text-decoration:none; color:inherit;">${escapeHtml(pdf.filename || 'newspaper.pdf')}</a>
+                <div class="card news-card" id="editor-pdf-card-${pdf.id}" style="padding: 16px;">
+                    <div style="display:flex; align-items:center; gap:16px;">
+                        <div style="background: var(--accent-orange-light); padding: 12px; border-radius: 8px; color: var(--accent-orange); flex-shrink:0;">
+                            ${icon('archive', 28)}
                         </div>
-                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px;">${dateStr}</div>
+                        <div style="flex: 1; min-width:0;">
+                            <div style="font-weight: 600; font-size: 1.02rem; color: var(--text-primary); word-break: break-all;">
+                                ${escapeHtml(pdf.filename || 'newspaper.pdf')}
+                            </div>
+                            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">${dateStr}</div>
+                            <div style="margin-top:6px;">${badge}</div>
+                        </div>
                     </div>
-                    <a href="${forceDownloadUrl(pdf.pdf_url, pdf.filename)}" download="${escapeHtml(pdf.filename || 'newspaper.pdf')}" class="btn btn-secondary btn-sm" style="display:flex; align-items:center; gap:6px;">
-                        ${icon('download', 16)} डाउनलोड
-                    </a>
+                    ${actions}
                 </div>
             `;
         }).join('');
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
+    }
+}
+
+async function approveApiPdf(id, btn) {
+    if (btn) btn.disabled = true;
+    try {
+        const res = await api(`/editor/api-pdfs/${id}/approve`, { method: 'POST', body: JSON.stringify({}) });
+        if (res.error) { showToast(res.error, 'error'); if (btn) btn.disabled = false; return; }
+        showToast('PDF स्वीकृत कर दी गई', 'success');
+        await loadPdfsForSelectedTarget();
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function rejectApiPdf(id, btn) {
+    if (!confirm('क्या आप वाकई इस PDF को रिजेक्ट करना चाहते हैं? फाइल हमेशा के लिए डिलीट हो जाएगी।')) return;
+    if (btn) btn.disabled = true;
+    try {
+        const res = await api(`/editor/api-pdfs/${id}/reject`, { method: 'POST', body: JSON.stringify({}) });
+        if (res.error) { showToast(res.error, 'error'); if (btn) btn.disabled = false; return; }
+        showToast('PDF रिजेक्ट कर दी गई', 'success');
+        await loadPdfsForSelectedTarget();
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+        if (btn) btn.disabled = false;
     }
 }
 

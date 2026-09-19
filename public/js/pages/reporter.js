@@ -960,26 +960,54 @@ async function loadReporterPdfs() {
             return;
         }
 
-        container.innerHTML = pdfs.map(pdf => {
-            const dateStr = new Date(pdf.created_at).toLocaleString('hi-IN');
-            return `
-                <div class="card" style="padding: 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 16px;">
-                    <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; color: var(--accent-orange);">
-                        ${icon('file', 32)}
-                    </div>
-                    <div style="flex: 1;">
-                        <div style="font-weight: 600; font-size: 1.05rem; color: var(--text-primary); word-break: break-all;">
-                            <a href="${pdf.pdf_url}" target="_blank" style="text-decoration:none; color:inherit;">${escapeHtml(pdf.filename || 'newspaper.pdf')}</a>
-                        </div>
-                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px;">${dateStr}</div>
-                    </div>
-                    <a href="${forceDownloadUrl(pdf.pdf_url, pdf.filename)}" download="${escapeHtml(pdf.filename || 'newspaper.pdf')}" class="btn btn-secondary btn-sm" style="display:flex; align-items:center; gap:6px;">
-                        ${icon('download', 16)} डाउनलोड
-                    </a>
-                </div>
-            `;
-        }).join('');
+        container.innerHTML = pdfs.map(pdf => renderApiPdfCard(pdf)).join('');
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-text">Error loading PDFs</div></div>`;
     }
+}
+
+/**
+ * PDF card for the reporter/sub-editor "my PDFs" view. Preview+download only
+ * unlock once the main editor approves; pending shows a waiting notice,
+ * rejected shows why nothing can be opened (the file itself is deleted on
+ * reject, so there's nothing left to preview/download).
+ */
+function renderApiPdfCard(pdf) {
+    const dateStr = new Date(pdf.created_at).toLocaleString('hi-IN');
+    const st = pdf.status === 'approved' || pdf.status === 'rejected' ? pdf.status : 'pending';
+    const locked = st !== 'approved';
+
+    const statusLine = st === 'pending'
+        ? `<div class="api-pdf-status api-pdf-status-pending">${icon('clock', 13)} Editor की स्वीकृति का इंतज़ार है</div>`
+        : st === 'rejected'
+            ? `<div class="api-pdf-status api-pdf-status-rejected">${icon('x', 13)} यह PDF समाचार एडिटर द्वारा रिजेक्ट कर दी गई है</div>`
+            : '';
+
+    return `
+        <div class="card" style="padding: 16px; margin-bottom: 12px;">
+            <div style="display:flex; align-items:center; gap:16px;">
+                <div style="background: var(--accent-orange-light); padding: 12px; border-radius: 8px; color: var(--accent-orange); flex-shrink:0; opacity:${locked ? '0.5' : '1'};">
+                    ${icon('archive', 28)}
+                </div>
+                <div style="flex: 1; min-width:0;">
+                    <div style="font-weight: 600; font-size: 1.02rem; color: var(--text-primary); word-break: break-all; opacity:${locked ? '0.6' : '1'};">
+                        ${escapeHtml(pdf.filename || 'newspaper.pdf')}
+                    </div>
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">${dateStr}</div>
+                </div>
+            </div>
+            ${statusLine}
+            ${st !== 'rejected' ? `
+                <div class="news-card-actions-row" style="border-top:none; margin-top:10px; padding-top:0;">
+                    ${st === 'approved' ? `
+                        <a href="${pdf.pdf_url}" target="_blank" class="btn btn-secondary btn-xs">${icon('eye', 12)} देखें</a>
+                        <a href="${forceDownloadUrl(pdf.pdf_url, pdf.filename)}" download="${escapeHtml(pdf.filename || 'newspaper.pdf')}" class="btn btn-secondary btn-xs">${icon('download', 12)} डाउनलोड</a>
+                    ` : `
+                        <button type="button" class="btn btn-secondary btn-xs" disabled>${icon('eye', 12)} देखें</button>
+                        <button type="button" class="btn btn-secondary btn-xs" disabled>${icon('download', 12)} डाउनलोड</button>
+                    `}
+                </div>
+            ` : ''}
+        </div>
+    `;
 }

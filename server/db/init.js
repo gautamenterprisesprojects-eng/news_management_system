@@ -250,7 +250,12 @@ async function initDatabase() {
             job_id: 'TEXT',
             bundle_id: 'TEXT',
             edition_id: 'TEXT',
-            status: 'TEXT'
+            // status: 'pending' (awaiting editor review) | 'approved' | 'rejected'.
+            // Reporters/sub-editors only get a working preview+download once
+            // this is 'approved'; the underlying file is removed on reject.
+            status: 'TEXT',
+            reviewed_by: 'INTEGER',
+            reviewed_at: 'TEXT'
         },
         // lead_news_id: the news.id the editor marked as the lead/hero story
         // for this bundle (placed first so PageMint's front-page lead box

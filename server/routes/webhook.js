@@ -90,7 +90,12 @@ router.post('/newspaper-pdf', verifyWebhookKey, upload.single('pdf'), (req, res)
         const jobId     = req.body.job_id     || null;
         const bundleId  = req.body.bundle_id  || null;
         const editionId = req.body.edition_id || null;
-        const status    = req.body.status     || null;
+
+        // Every PDF arrives pending the main editor's review -- it isn't
+        // visible/downloadable to the reporter/sub-editor it's for until an
+        // editor approves it (or gets deleted+hidden on reject). PageMint's
+        // own status field, if any, was never read anywhere and is dropped.
+        const status = 'pending';
 
         const pdfUrl = `/uploads/pdfs/${req.file.filename}`;
 
@@ -147,10 +152,14 @@ router.post('/manual-upload', verifyToken, requireRole('editor', 'admin'), uploa
         }
 
         const pdfUrl = `/uploads/pdfs/${req.file.filename}`;
-        
+
+        // An editor manually uploading a PDF here already *is* the approval
+        // decision -- no separate review step needed, unlike PDFs arriving
+        // automatically from the PageMint webhook above.
         queryRun(
-            'INSERT INTO api_pdfs (target_user_id, pdf_url, filename) VALUES (?, ?, ?)',
-            [targetUserId, pdfUrl, req.file.originalname]
+            `INSERT INTO api_pdfs (target_user_id, pdf_url, filename, status, reviewed_by, reviewed_at)
+             VALUES (?, ?, ?, 'approved', ?, datetime('now', 'localtime'))`,
+            [targetUserId, pdfUrl, req.file.originalname, req.user.id]
         );
 
         res.json({ success: true, message: 'PDF uploaded successfully.', pdfUrl });
@@ -168,7 +177,7 @@ router.post('/manual-upload', verifyToken, requireRole('editor', 'admin'), uploa
 router.get('/my-pdfs', verifyToken, (req, res) => {
     try {
         const targetUserId = req.user.id;
-        const pdfs = queryAll('SELECT id, pdf_url, filename, created_at FROM api_pdfs WHERE target_user_id = ? ORDER BY created_at DESC', [targetUserId]);
+        const pdfs = queryAll('SELECT id, pdf_url, filename, status, created_at FROM api_pdfs WHERE target_user_id = ? ORDER BY created_at DESC', [targetUserId]);
         res.json({ pdfs });
     } catch (err) {
         console.error('Fetch my-pdfs error:', err);
