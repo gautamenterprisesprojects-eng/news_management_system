@@ -391,7 +391,8 @@ async function loadUsers() {
                     </button>
                     ${u.status === 'active'
                         ? `<button class="btn btn-ghost btn-sm" onclick="toggleUserStatus(${u.id}, 'inactive')" style="color:var(--accent-red);">🚫</button>`
-                        : `<button class="btn btn-ghost btn-sm" onclick="toggleUserStatus(${u.id}, 'active')" style="color:var(--accent-green);">✅</button>`
+                        : `<button class="btn btn-ghost btn-sm" onclick="toggleUserStatus(${u.id}, 'active')" style="color:var(--accent-green);">✅</button>
+                           <button class="btn btn-ghost btn-sm" onclick="deleteUserPermanently(${u.id}, '${escapeHtml(u.username)}')" style="color:var(--accent-red);" title="स्थायी रूप से डिलीट करें">🗑️</button>`
                     }
                 </div>
             </div>
@@ -563,9 +564,6 @@ function editUserModal(id) {
                         <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">Upload an image to set or update this user's profile photo.</p>
                     </div>
                     <button class="btn btn-primary btn-full mt-4" onclick="updateUser(${id}, '${role}')" data-i18n="admin.update_btn">${t('admin.update_btn')}</button>
-                    <button class="btn btn-danger btn-full mt-2" onclick="deleteUserPermanently(${id}, '${escapeHtml(u.username)}')">
-                        🗑️ प्रोफ़ाइल स्थायी रूप से डिलीट करें
-                    </button>
                 </div>
             </div>
         </div>

@@ -355,12 +355,15 @@ router.post('/users/:id/avatar', upload.single('avatar'), (req, res) => {
 router.delete('/users/:id', (req, res) => {
     try {
         const { id } = req.params;
-        const user = queryGet('SELECT id, username, role FROM users WHERE id = ?', [id]);
+        const user = queryGet('SELECT id, username, role, status FROM users WHERE id = ?', [id]);
         if (!user) {
             return res.status(404).json({ error: 'User not found.' });
         }
         if (user.role === 'admin') {
             return res.status(400).json({ error: 'Admin account को डिलीट नहीं किया जा सकता।' });
+        }
+        if (user.status === 'active') {
+            return res.status(400).json({ error: 'डिलीट करने से पहले प्रोफ़ाइल को पहले बैन (🚫) करें।' });
         }
 
         const contentCount =
