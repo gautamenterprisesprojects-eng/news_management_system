@@ -99,6 +99,29 @@ const upload = multer({
 // Reporter workflow is available only to reporter accounts.
 router.use(verifyToken, requireRole('reporter'));
 
+// Bump this whenever the terms text changes so old acceptances stay
+// attributable to the version the reporter actually saw.
+const REPORTER_TERMS_VERSION = 'v1.0-2026-09-19';
+
+/**
+ * POST /api/reporter/terms/accept
+ * Append-only audit record: who accepted the Terms & Conditions, when, and
+ * from what IP. Never updated or deleted -- see terms_acceptances table.
+ */
+router.post('/terms/accept', (req, res) => {
+    try {
+        const user = queryGet('SELECT username, full_name FROM users WHERE id = ?', [req.user.id]);
+        queryRun(
+            'INSERT INTO terms_acceptances (user_id, username, full_name, terms_version, ip_address) VALUES (?, ?, ?, ?, ?)',
+            [req.user.id, user?.username || null, user?.full_name || null, REPORTER_TERMS_VERSION, req.ip || null]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Terms acceptance record error:', err);
+        res.status(500).json({ error: 'Failed to record acceptance.' });
+    }
+});
+
 /**
  * POST /api/reporter/news
  * Accepts up to 10 images via 'images' field

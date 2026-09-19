@@ -326,6 +326,23 @@ async function initDatabase() {
     `);
 
     // ============================================================
+    // TABLE: terms_acceptances -- append-only audit log of reporters
+    // accepting the news-submission Terms & Conditions. Never updated or
+    // deleted by any cleanup job; kept indefinitely as a compliance record.
+    // ============================================================
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS terms_acceptances (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            username TEXT,
+            full_name TEXT,
+            terms_version TEXT NOT NULL,
+            ip_address TEXT,
+            accepted_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    `);
+
+    // ============================================================
     // INDEXES
     // ============================================================
     db.exec(`CREATE INDEX IF NOT EXISTS idx_news_status ON news(status)`);
@@ -338,6 +355,7 @@ async function initDatabase() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_news_sub_editor ON news(sub_editor_id, sub_editor_status)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_news_images_order ON news_images(news_id, sort_order, id)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_terms_acceptances_user ON terms_acceptances(user_id)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_ads_sub_editor ON advertisements(sub_editor_id, status)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_ads_editor ON advertisements(editor_id, status)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_ads_created_at ON advertisements(created_at)`);

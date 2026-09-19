@@ -11,6 +11,11 @@ const { uploadsDir, avatarsDir, pdfsDir, resolveUpload } = require('./storage');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// The app only listens on 127.0.0.1 and is reached through the host's nginx
+// reverse proxy, so it's safe to trust X-Forwarded-For for the real client IP
+// (needed for accurate terms-of-service acceptance records, audit logs, etc).
+app.set('trust proxy', true);
+
 // ============================================================
 // MIDDLEWARE
 // ============================================================
