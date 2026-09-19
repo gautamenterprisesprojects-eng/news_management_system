@@ -60,7 +60,19 @@ fs.mkdirSync(avatarsDir, { recursive: true });
 fs.mkdirSync(pdfsDir, { recursive: true });
 
 app.use('/uploads/avatars', express.static(avatarsDir));
-app.use('/uploads/pdfs', express.static(pdfsDir));
+// iOS Safari ignores the HTML `download` attribute for PDFs and opens its
+// own Quick Look preview instead of downloading -- but it does respect a
+// server-set Content-Disposition: attachment header. Only add it when the
+// download button asks for it (?dl=1), so the plain "open in new tab"
+// preview links elsewhere in the app keep opening inline as before.
+app.use('/uploads/pdfs', (req, res, next) => {
+    if (req.query.dl) {
+        const rawName = typeof req.query.filename === 'string' ? req.query.filename : path.basename(req.path);
+        const safeName = rawName.replace(/[^\w\s.\-()]/g, '').slice(0, 150) || 'newspaper.pdf';
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    }
+    next();
+}, express.static(pdfsDir));
 app.use('/uploads', express.static(uploadsDir));
 app.get('/api/health', (req, res) => {
     try {

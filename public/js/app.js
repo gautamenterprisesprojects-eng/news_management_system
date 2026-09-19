@@ -3,6 +3,18 @@
    ============================================================ */
 
 /**
+ * Builds a PDF URL that forces an actual download (Content-Disposition:
+ * attachment) instead of an inline preview -- needed because iOS Safari
+ * ignores the HTML `download` attribute for PDFs and opens Quick Look
+ * instead. See the matching /uploads/pdfs middleware in server/index.js.
+ */
+function forceDownloadUrl(url, filename) {
+    if (!url) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}dl=1&filename=${encodeURIComponent(filename || 'newspaper.pdf')}`;
+}
+
+/**
  * API helper — all API calls go through this
  * Automatically adds JWT token and handles auth errors
  */

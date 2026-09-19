@@ -1987,6 +1987,18 @@ let _apiPdfPollTimer = null;
 let _apiPdfElapsedTimer = null;
 let _apiPdfWaitStartedAt = 0;
 
+// Single back button for the API screen: goes up one level at a time --
+// out of the news list to the target list, then out of the target list to
+// the More menu -- instead of showing two stacked back buttons at once.
+function apiScreenBack() {
+    const newsSelection = document.getElementById('apiNewsSelection');
+    if (newsSelection && !newsSelection.classList.contains('hidden')) {
+        backToApiTargets();
+    } else {
+        switchEditorPane('more');
+    }
+}
+
 function renderEditorApiScreen() {
     const app = document.getElementById('app');
     app.innerHTML = `
@@ -1994,7 +2006,7 @@ function renderEditorApiScreen() {
         <main class="page-content" style="padding-bottom: 70px;">
             <div class="split-pane-header" style="padding: 12px 16px; border-bottom: 1px solid var(--border-color);">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <button class="btn btn-secondary btn-sm" onclick="switchEditorPane('more')">← वापस</button>
+                    <button class="btn btn-secondary btn-sm" onclick="apiScreenBack()">← वापस</button>
                     <h3 style="margin: 0;">न्यूज़पेपर API</h3>
                 </div>
             </div>
@@ -2009,7 +2021,6 @@ function renderEditorApiScreen() {
             <div id="apiNewsSelection" class="hidden" style="padding: 0 8px;">
                 <div class="bundle-toolbar" style="padding: 10px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10;">
                     <div style="display:flex; align-items:center; gap: 12px; flex-wrap:wrap;">
-                        <button class="btn btn-secondary btn-sm" onclick="backToApiTargets()">← वापस</button>
                         <strong id="apiSelectedTargetTitle" style="font-size:14px;"></strong>
                         <div>
                             <input type="checkbox" id="selectAllApiNews" onchange="toggleSelectAllApiNews(this.checked)">
@@ -2026,6 +2037,9 @@ function renderEditorApiScreen() {
                         </button>
                         <button class="btn btn-primary btn-sm" id="apiBundleSendBtn" onclick="sendApiNewspaperBundle()" disabled>
                             📰 AI rewritten खबरें PageMint भेजें (0)
+                        </button>
+                        <button class="btn btn-primary btn-sm" id="apiBothBundleSendBtn" onclick="sendApiBothNewspaperBundles()" disabled style="background:var(--accent-green,#16a34a); border-color:var(--accent-green,#16a34a);">
+                            📰 RAW + AI दोनों भेजें (0)
                         </button>
                     </div>
                 </div>
@@ -2136,6 +2150,46 @@ function getApiNewsTimestamp(news) {
     return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+// Calendar-date key (Asia/Kolkata, YYYY-MM-DD) for grouping the API news list
+// into date-locked 24-hour windows -- midnight to midnight, not a rolling
+// "last 24 hours from now" window. A news item filed at 11:58pm sits in
+// today's group; the instant the clock passes midnight it moves into
+// yesterday's group, even though its real age barely changed.
+const API_NEWS_DATE_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+function getApiNewsDateKey(news) {
+    const ts = getApiNewsTimestamp(news);
+    if (!ts) return 'unknown';
+    return API_NEWS_DATE_FMT.format(new Date(ts));
+}
+
+function formatApiNewsDateLabel(dateKey) {
+    if (dateKey === 'unknown') return 'तारीख अज्ञात';
+    const todayKey = API_NEWS_DATE_FMT.format(new Date());
+    const yesterdayKey = API_NEWS_DATE_FMT.format(new Date(Date.now() - 86400000));
+    if (dateKey === todayKey) return 'आज';
+    if (dateKey === yesterdayKey) return 'कल';
+    const [y, m, d] = dateKey.split('-').map(Number);
+    return new Intl.DateTimeFormat('hi-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(Date.UTC(y, m - 1, d, 12)));
+}
+
+/**
+ * Groups an already-sorted news array into consecutive date buckets,
+ * preserving the incoming sort order within and across buckets.
+ */
+function groupApiNewsByDate(sortedList) {
+    const groups = [];
+    let currentKey = null;
+    for (const news of sortedList) {
+        const key = getApiNewsDateKey(news);
+        if (key !== currentKey) {
+            groups.push({ key, label: formatApiNewsDateLabel(key), items: [] });
+            currentKey = key;
+        }
+        groups[groups.length - 1].items.push(news);
+    }
+    return groups;
+}
+
 function getSortedApiNews() {
     const direction = _apiNewsSort === 'oldest' ? 1 : -1;
     return [..._apiNewsCache].sort((a, b) => {
@@ -2202,13 +2256,22 @@ function renderApiNewsList() {
         return;
     }
 
+    const dateHeaderHtml = (label) => `
+        <div class="api-news-date-header" style="margin:14px 0 6px; padding:4px 8px; font-size:12px; font-weight:700; color:var(--text-secondary); background:var(--bg-glass, #f1f5f9); border-radius:6px; width:fit-content;">
+            ${escapeHtml(label)}
+        </div>
+    `;
+
     const sections = [];
     if (sortedRaw.length > 0) {
         sections.push(`
             <div style="margin-bottom:8px; font-size:13px; font-weight:600; color:var(--accent-orange); padding:0 4px;">
                 RAW खबरें (बिना AI rewrite — इसी ${escapeHtml(_selectedApiTargetName)} ID पर PageMint)
             </div>
-            ${sortedRaw.map(news => renderApiNewsCard(news, { raw: true })).join('')}
+            ${groupApiNewsByDate(sortedRaw).map(group => `
+                ${dateHeaderHtml(group.label)}
+                ${group.items.map(news => renderApiNewsCard(news, { raw: true })).join('')}
+            `).join('')}
         `);
     }
     if (sortedNews.length > 0) {
@@ -2216,7 +2279,10 @@ function renderApiNewsList() {
             <div style="margin:16px 0 8px; font-size:13px; font-weight:600; color:var(--text-secondary); padding:0 4px;">
                 AI rewritten processed खबरें
             </div>
-            ${sortedNews.map(news => renderApiNewsCard(news, { raw: false })).join('')}
+            ${groupApiNewsByDate(sortedNews).map(group => `
+                ${dateHeaderHtml(group.label)}
+                ${group.items.map(news => renderApiNewsCard(news, { raw: false })).join('')}
+            `).join('')}
         `);
     }
     container.innerHTML = sections.join('');
@@ -2301,13 +2367,20 @@ function toggleLeadApiNews(id, raw) {
 function updateApiBundleToolbar() {
     const rawBtn = document.getElementById('apiRawBundleSendBtn');
     const btn = document.getElementById('apiBundleSendBtn');
+    const bothBtn = document.getElementById('apiBothBundleSendBtn');
     if (rawBtn) {
         rawBtn.disabled = _selectedApiRawNews.size < 1;
         rawBtn.textContent = `📰 RAW खबरें PageMint भेजें (${_selectedApiRawNews.size})`;
     }
-    if (!btn) return;
-    btn.disabled = _selectedApiNews.size < 1;
-    btn.textContent = `📰 AI rewritten खबरें PageMint भेजें (${_selectedApiNews.size})`;
+    if (btn) {
+        btn.disabled = _selectedApiNews.size < 1;
+        btn.textContent = `📰 AI rewritten खबरें PageMint भेजें (${_selectedApiNews.size})`;
+    }
+    if (bothBtn) {
+        const total = _selectedApiRawNews.size + _selectedApiNews.size;
+        bothBtn.disabled = _selectedApiRawNews.size < 1 || _selectedApiNews.size < 1;
+        bothBtn.textContent = `📰 RAW + AI दोनों भेजें (${total})`;
+    }
 }
 
 async function sendApiRawNewspaperBundle() {
@@ -2429,6 +2502,86 @@ async function sendApiNewspaperBundle() {
         btn.disabled = false;
         btn.textContent = `📰 AI rewritten खबरें PageMint भेजें (${_selectedApiNews.size})`;
     }
+}
+
+/**
+ * Sends the selected RAW news and the selected AI-rewritten news as two
+ * back-to-back PageMint bundles from a single button, instead of requiring
+ * the RAW and AI-rewritten sends to be triggered separately.
+ */
+async function sendApiBothNewspaperBundles() {
+    if (_selectedApiRawNews.size < 1 || _selectedApiNews.size < 1) {
+        showToast('RAW और AI rewritten, दोनों में से कम से कम 1-1 खबर चुनें', 'error');
+        return;
+    }
+    if (!_selectedApiTargetId) {
+        showToast('पहले API reporter / sub-editor चुनें', 'error');
+        return;
+    }
+    const name = _selectedApiTargetName || 'इस यूज़र';
+    if (!confirm(`क्या आप ${_selectedApiRawNews.size} RAW और ${_selectedApiNews.size} AI rewritten खबरें, दोनों को ${name} की PageMint ID पर भेजना चाहते हैं?`)) {
+        return;
+    }
+
+    const bothBtn = document.getElementById('apiBothBundleSendBtn');
+    const rawBtn = document.getElementById('apiRawBundleSendBtn');
+    const btn = document.getElementById('apiBundleSendBtn');
+    [bothBtn, rawBtn, btn].forEach(b => { if (b) b.disabled = true; });
+    if (bothBtn) bothBtn.textContent = 'भेज रहा है...';
+
+    const rawLeadNewsId = _selectedApiRawNews.has(_leadApiNewsId) ? _leadApiNewsId : null;
+    const aiLeadNewsId = _selectedApiNews.has(_leadApiNewsId) ? _leadApiNewsId : null;
+    const rawCount = _selectedApiRawNews.size;
+    const aiCount = _selectedApiNews.size;
+
+    let rawOk = false;
+    let aiOk = false;
+    let firstError = null;
+
+    try {
+        const rawRes = await api('/editor/newspaper-generator/raw-bundle', {
+            method: 'POST',
+            body: JSON.stringify({
+                target_user_id: _selectedApiTargetId,
+                news_ids: Array.from(_selectedApiRawNews),
+                lead_news_id: rawLeadNewsId
+            })
+        });
+        if (rawRes.error) firstError = rawRes.error; else rawOk = true;
+    } catch (err) {
+        firstError = t('common.error');
+    }
+
+    try {
+        const aiRes = await api('/editor/newspaper-generator/bundle', {
+            method: 'POST',
+            body: JSON.stringify({
+                target_user_id: _selectedApiTargetId,
+                news_ids: Array.from(_selectedApiNews),
+                lead_news_id: aiLeadNewsId
+            })
+        });
+        if (aiRes.error) firstError = firstError || aiRes.error; else aiOk = true;
+    } catch (err) {
+        firstError = firstError || t('common.error');
+    }
+
+    if (rawOk && aiOk) {
+        showToast(`${rawCount} RAW + ${aiCount} AI rewritten खबरें, दोनों बंडल भेज दिए गए`, 'success');
+        _selectedApiRawNews.clear();
+        _selectedApiNews.clear();
+        _leadApiNewsId = null;
+        await loadNewsForApiTarget();
+    } else if (rawOk || aiOk) {
+        showToast(`एक बंडल भेज दिया गया, दूसरे में समस्या: ${firstError || ''}`, 'error');
+        if (rawOk) _selectedApiRawNews.clear();
+        if (aiOk) _selectedApiNews.clear();
+        await loadNewsForApiTarget();
+    } else {
+        showToast(firstError || t('common.error'), 'error');
+    }
+
+    updateApiBundleToolbar();
 }
 
 // ==========================================
@@ -2613,7 +2766,7 @@ async function loadPdfsForSelectedTarget() {
                         </div>
                         <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px;">${dateStr}</div>
                     </div>
-                    <a href="${pdf.pdf_url}" download class="btn btn-secondary btn-sm" style="display:flex; align-items:center; gap:6px;">
+                    <a href="${forceDownloadUrl(pdf.pdf_url, pdf.filename)}" download="${escapeHtml(pdf.filename || 'newspaper.pdf')}" class="btn btn-secondary btn-sm" style="display:flex; align-items:center; gap:6px;">
                         ${icon('download', 16)} डाउनलोड
                     </a>
                 </div>

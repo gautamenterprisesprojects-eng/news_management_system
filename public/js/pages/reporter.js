@@ -973,7 +973,7 @@ async function loadReporterPdfs() {
                         </div>
                         <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px;">${dateStr}</div>
                     </div>
-                    <a href="${pdf.pdf_url}" download class="btn btn-secondary btn-sm" style="display:flex; align-items:center; gap:6px;">
+                    <a href="${forceDownloadUrl(pdf.pdf_url, pdf.filename)}" download="${escapeHtml(pdf.filename || 'newspaper.pdf')}" class="btn btn-secondary btn-sm" style="display:flex; align-items:center; gap:6px;">
                         ${icon('download', 16)} डाउनलोड
                     </a>
                 </div>
