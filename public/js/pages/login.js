@@ -87,17 +87,8 @@ async function handleLogin(e) {
         localStorage.setItem('nms_token', data.token);
         localStorage.setItem('nms_user', JSON.stringify(data.user));
 
-        // Redirect to appropriate panel
-        const roleRoutes = {
-            admin: '#/admin',
-            reporter: '#/reporter',
-            editor: '#/editor',
-            sub_editor: '#/sub-editor',
-            operator: '#/operator',
-            ad_manager: '#/ad-manager'
-        };
-
-        window.location.hash = roleRoutes[data.user.role] || '#/login';
+        // Redirect to the authenticated user's document.
+        navigateToPage(getRoleHomePage(data.user) || 'login', { replace: true });
     } catch (err) {
         errorText.textContent = t('common.error');
         errorDiv.classList.add('show');

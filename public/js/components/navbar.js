@@ -38,31 +38,31 @@ function renderTopBar(titleKey, icon) {
                     <div class="role" style="text-transform: capitalize; color: var(--accent-blue);">● ${user.role || ''}</div>
                 </div>
                 ${user.role === 'admin' ? `
-                    <div class="user-dropdown-item" onclick="window.location.hash='#/admin'; toggleUserDropdown();">
+                    <div class="user-dropdown-item" onclick="navigateToPage('admin')">
                         <i data-lucide="shield-check"></i> <span data-i18n="common.nav_admin_panel">${t('common.nav_admin_panel')}</span>
                     </div>
                 ` : user.role === 'editor' ? `
-                    <div class="user-dropdown-item" onclick="window.location.hash='#/editor'; toggleUserDropdown();">
+                    <div class="user-dropdown-item" onclick="navigateToPage('editor')">
                         <i data-lucide="edit-3"></i> <span data-i18n="common.nav_editor_panel">${t('common.nav_editor_panel')}</span>
                     </div>
                 ` : user.role === 'operator' ? `
-                    <div class="user-dropdown-item" onclick="window.location.hash='#/operator'; toggleUserDropdown();">
+                    <div class="user-dropdown-item" onclick="navigateToPage('operator')">
                         <i data-lucide="layout-list"></i> <span data-i18n="common.nav_operator_panel">${t('common.nav_operator_panel')}</span>
                     </div>
                 ` : user.role === 'sub_editor' ? `
-                    <div class="user-dropdown-item" onclick="window.location.hash='#/sub-editor'; toggleUserDropdown();">
+                    <div class="user-dropdown-item" onclick="navigateToPage('sub-editor')">
                         <i data-lucide="clipboard-check"></i> <span>Sub-editor Panel</span>
                     </div>
                 ` : user.role === 'ad_manager' ? `
-                    <div class="user-dropdown-item" onclick="window.location.hash='#/ad-manager'; toggleUserDropdown();">
+                    <div class="user-dropdown-item" onclick="navigateToPage('ad-manager')">
                         <i data-lucide="badge-indian-rupee"></i> <span>Ad Manager Panel</span>
                     </div>
                 ` : user.role === 'reporter' ? `
-                    <div class="user-dropdown-item" onclick="window.location.hash='#/reporter'; toggleUserDropdown();">
+                    <div class="user-dropdown-item" onclick="navigateToPage('reporter')">
                         <i data-lucide="file-plus-2"></i> <span data-i18n="common.nav_reporter_panel">${t('common.nav_reporter_panel')}</span>
                     </div>
                 ` : ''}
-                <div class="user-dropdown-item" onclick="window.location.hash='#/profile'; toggleUserDropdown();">
+                <div class="user-dropdown-item" onclick="navigateToPage('profile')">
                     <i data-lucide="user"></i> <span data-i18n="profile.settings">${t('profile.settings')}</span>
                 </div>
                 ${user.role === 'editor' ? `

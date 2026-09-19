@@ -4,7 +4,7 @@
   "description": "NMS THE CLIFF NEWS - News Management System",
   "id": "/",
   "lang": "hi-IN",
-  "start_url": "/#/login",
+  "start_url": "/login/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f8fafc",

@@ -44,10 +44,15 @@ app.get('/manifest.webmanifest', (req, res) => {
 app.use(express.static(path.join(__dirname, '..', 'public'), {
     maxAge: '30d',
     setHeaders: (res, filePath) => {
-        if (/\.(html|js|css|webmanifest)$/i.test(filePath)) {
+        if (/\.html$/i.test(filePath)) {
             res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
             res.set('Pragma', 'no-cache');
             res.set('Expires', '0');
+        } else if (/\.(js|css)$/i.test(filePath)) {
+            // Every production page references these assets with an explicit
+            // version query. Cache them across document navigations; a bumped
+            // version remains an immediate cache miss after a deployment.
+            res.set('Cache-Control', 'public, max-age=31536000, immutable');
         }
     }
 }));
@@ -208,7 +213,7 @@ if (process.env.ENABLE_NEWS_CLEANUP === 'true') setInterval(() => {
 setInterval(cleanupOldPageMintBundles, 60 * 60 * 1000); // 1 hour
 
 // ============================================================
-// SPA FALLBACK — serve index.html for all non-API routes
+// GATEWAY FALLBACK - legacy/unknown browser routes enter through index.html.
 // ============================================================
 app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {

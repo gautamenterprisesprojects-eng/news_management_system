@@ -26,7 +26,7 @@ self.addEventListener('push', (event) => {
         lang: 'hi-IN',
         dir: 'auto',
         data: {
-            url: payload.url || '/#/editor',
+            url: payload.url || '/editor/',
             newsId: payload.newsId || null
         },
         tag: payload.tag || 'the-cliff-news',
@@ -38,7 +38,7 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
-    const targetUrl = new URL(event.notification.data?.url || '/#/editor', self.location.origin).href;
+    const targetUrl = new URL(event.notification.data?.url || '/editor/', self.location.origin).href;
 
     event.waitUntil((async () => {
         const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

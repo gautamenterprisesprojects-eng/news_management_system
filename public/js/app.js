@@ -1,6 +1,75 @@
 /* ============================================================
-   APP.JS — SPA Router, Auth State, API Helpers
+   APP.JS - Multi-page navigation, auth state, and API helpers
    ============================================================ */
+
+const NMS_PAGE_ROUTES = Object.freeze({
+    gateway: '/',
+    login: '/login/',
+    reporter: '/reporter/',
+    editor: '/editor/',
+    'sub-editor': '/sub-editor/',
+    'ad-manager': '/ad-manager/',
+    operator: '/operator/',
+    admin: '/admin/',
+    profile: '/profile/'
+});
+
+const NMS_ROLE_PAGES = Object.freeze({
+    admin: 'admin',
+    editor: 'editor',
+    reporter: 'reporter',
+    operator: 'operator',
+    sub_editor: 'sub-editor',
+    ad_manager: 'ad-manager'
+});
+
+const NMS_LEGACY_HASH_PAGES = Object.freeze({
+    '#/login': 'login',
+    '#/reporter': 'reporter',
+    '#/editor': 'editor',
+    '#/sub-editor': 'sub-editor',
+    '#/ad-manager': 'ad-manager',
+    '#/operator': 'operator',
+    '#/admin': 'admin',
+    '#/profile': 'profile'
+});
+
+const NMS_PAGE_RENDERERS = Object.freeze({
+    login: 'renderLogin',
+    reporter: 'renderReporter',
+    editor: 'renderEditor',
+    'sub-editor': 'renderSubEditor',
+    'ad-manager': 'renderAdManager',
+    operator: 'renderOperator',
+    admin: 'renderAdmin',
+    profile: 'renderProfile'
+});
+
+function getCurrentPage() {
+    return document.body?.dataset.nmsPage || 'gateway';
+}
+
+function isCurrentPage(page) {
+    return getCurrentPage() === page;
+}
+
+function getRoleHomePage(user = getCurrentUser()) {
+    return user ? NMS_ROLE_PAGES[user.role] || null : null;
+}
+
+function navigateToPage(page, { replace = false } = {}) {
+    const target = NMS_PAGE_ROUTES[page] || NMS_PAGE_ROUTES.login;
+
+    if (window.location.pathname === target) {
+        if (window.location.hash || window.location.search) {
+            window.history.replaceState(null, '', target);
+        }
+        return;
+    }
+
+    if (replace) window.location.replace(target);
+    else window.location.assign(target);
+}
 
 /**
  * Builds a PDF URL that forces an actual download (Content-Disposition:
@@ -15,23 +84,23 @@ function forceDownloadUrl(url, filename) {
 }
 
 /**
- * API helper — all API calls go through this
- * Automatically adds JWT token and handles auth errors
+ * API helper - all API calls go through this.
+ * Automatically adds the JWT token and handles auth errors.
  */
 async function api(endpoint, options = {}) {
     const token = localStorage.getItem('nms_token');
     const headers = { ...(options.headers || {}) };
 
     if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+        headers.Authorization = `Bearer ${token}`;
     }
 
-    // Don't set Content-Type for FormData (browser sets it with boundary)
+    // Do not set Content-Type for FormData; the browser adds its boundary.
     if (!options.isFormData) {
         headers['Content-Type'] = 'application/json';
     }
     headers['Cache-Control'] = 'no-cache';
-    headers['Pragma'] = 'no-cache';
+    headers.Pragma = 'no-cache';
 
     const method = (options.method || 'GET').toUpperCase();
     const apiUrl = new URL(`/api${endpoint}`, window.location.origin);
@@ -44,7 +113,6 @@ async function api(endpoint, options = {}) {
         cache: 'no-store'
     };
 
-    // Remove our custom flag
     delete fetchOptions.isFormData;
 
     try {
@@ -66,25 +134,16 @@ async function api(endpoint, options = {}) {
     }
 }
 
-/**
- * Logout — clear auth data and redirect to login
- */
 function logout() {
     localStorage.removeItem('nms_token');
     localStorage.removeItem('nms_user');
-    window.location.hash = '#/login';
+    navigateToPage('login', { replace: true });
 }
 
-/**
- * Check if user is authenticated
- */
 function isAuthenticated() {
     return !!localStorage.getItem('nms_token');
 }
 
-/**
- * Get current user info
- */
 function getCurrentUser() {
     try {
         return JSON.parse(localStorage.getItem('nms_user') || 'null');
@@ -94,32 +153,32 @@ function getCurrentUser() {
 }
 
 /**
- * Tab switching — used by bottom nav across all pages
+ * Tab switching is intentionally kept inside each role document. This keeps
+ * the existing workflows fast without turning every tab into a full reload.
  */
 function switchTab(tabId) {
-    const hash = window.location.hash || '';
+    const page = getCurrentPage();
 
-    // Update bottom nav active state
     document.querySelectorAll('.bottom-nav-item').forEach(item => {
         item.classList.toggle('active', item.dataset.tab === tabId);
     });
 
-    if (hash.startsWith('#/reporter')) {
+    if (page === 'reporter') {
         reporterTab = tabId;
         if (tabId === 'submit') renderReporterSubmitTab();
         else if (tabId === 'my-news') renderReporterMyNewsTab();
         else if (tabId === 'approved') renderReporterApprovedTab();
         else if (tabId === 'rejected') renderReporterRejectedTab();
         else if (tabId === 'pdfs') renderReporterPdfsTab();
-    } else if (hash.startsWith('#/editor')) {
+    } else if (page === 'editor') {
         editorTab = tabId;
         switchEditorPane(tabId);
-    } else if (hash.startsWith('#/sub-editor')) {
+    } else if (page === 'sub-editor') {
         subEditorTab = tabId;
         if (typeof renderSubEditorTab === 'function') renderSubEditorTab(tabId);
-    } else if (hash.startsWith('#/ad-manager')) {
+    } else if (page === 'ad-manager') {
         if (typeof switchAdManagerPane === 'function') switchAdManagerPane(tabId);
-    } else if (hash.startsWith('#/admin')) {
+    } else if (page === 'admin') {
         adminTab = tabId;
         if (tabId === 'dashboard') renderAdminDashboard();
         else if (tabId === 'users') renderAdminUsers();
@@ -127,103 +186,113 @@ function switchTab(tabId) {
     }
 }
 
-/**
- * SPA Router — hash-based routing
- */
-const routes = {
-    '#/login': renderLogin,
-    '#/reporter': renderReporter,
-    '#/editor': renderEditor,
-    '#/sub-editor': renderSubEditor,
-    '#/ad-manager': renderAdManager,
-    '#/operator': renderOperator,
-    '#/admin': renderAdmin,
-    '#/profile': renderProfile
-};
+function getLegacyHashPage() {
+    const hash = window.location.hash || '';
+    const route = hash.split('?')[0];
+    return NMS_LEGACY_HASH_PAGES[route] || null;
+}
 
-function router() {
-    const hash = window.location.hash || '#/login';
-
-    // Auth guard — redirect to login if not authenticated
-    if (hash !== '#/login' && !isAuthenticated()) {
-        window.location.hash = '#/login';
+function renderCurrentPage(page) {
+    const rendererName = NMS_PAGE_RENDERERS[page];
+    const renderFn = rendererName ? window[rendererName] : null;
+    if (typeof renderFn === 'function') {
+        renderFn();
         return;
     }
 
-    // If authenticated and on login, redirect to role page
-    if (hash === '#/login' && isAuthenticated()) {
-        const user = getCurrentUser();
-        if (user) {
-            const roleRoutes = {
-                'admin': '#/admin',
-                'editor': '#/editor',
-                'reporter': '#/reporter',
-                'operator': '#/operator',
-                'sub_editor': '#/sub-editor',
-                'ad_manager': '#/ad-manager'
-            };
-            window.location.hash = roleRoutes[user.role] || '#/login';
-            return;
-        }
-    }
-
-    // Role guard — ensure user can access permitted panels
-    if (isAuthenticated()) {
-        const user = getCurrentUser();
-        const allowedRoutes = {
-            admin: ['#/admin', '#/profile'],
-            editor: ['#/editor', '#/profile'],
-            sub_editor: ['#/sub-editor', '#/profile'],
-            ad_manager: ['#/ad-manager', '#/profile'],
-            operator: ['#/operator', '#/profile'],
-            reporter: ['#/reporter', '#/profile']
-        };
-
-        if (user && allowedRoutes[user.role] && !allowedRoutes[user.role].includes(hash)) {
-            window.location.hash = allowedRoutes[user.role][0];
-            return;
-        }
-    }
-
-    const renderFn = routes[hash];
-    if (renderFn) {
-        renderFn();
-    } else {
-        window.location.hash = '#/login';
+    console.error(`Missing renderer for NMS page: ${page}`);
+    const app = document.getElementById('app');
+    if (app) {
+        app.innerHTML = '<div class="empty-state"><div class="empty-text">Unable to load this page. Please refresh.</div></div>';
     }
 }
 
-// ============================================================
-// INITIALIZATION
-// ============================================================
-window.addEventListener('hashchange', router);
+/**
+ * Multi-page entry guard. Legacy hash routes remain valid and are converted
+ * to their equivalent document URL before any role module is rendered.
+ */
+function router() {
+    const page = getCurrentPage();
+    const legacyPage = getLegacyHashPage();
 
-// Set default language if not set
+    if (legacyPage) {
+        if (page !== legacyPage) {
+            navigateToPage(legacyPage, { replace: true });
+            return;
+        }
+        window.history.replaceState(null, '', NMS_PAGE_ROUTES[page]);
+    }
+
+    if (page === 'gateway') {
+        const homePage = isAuthenticated() ? getRoleHomePage() : null;
+        navigateToPage(homePage || 'login', { replace: true });
+        return;
+    }
+
+    if (page === 'login') {
+        if (isAuthenticated()) {
+            const homePage = getRoleHomePage();
+            if (homePage) {
+                navigateToPage(homePage, { replace: true });
+                return;
+            }
+            logout();
+            renderCurrentPage(page);
+            return;
+        }
+        renderCurrentPage(page);
+        return;
+    }
+
+    if (!isAuthenticated()) {
+        navigateToPage('login', { replace: true });
+        return;
+    }
+
+    const user = getCurrentUser();
+    const homePage = getRoleHomePage(user);
+    if (!user || !homePage) {
+        logout();
+        return;
+    }
+
+    if (page !== 'profile' && page !== homePage) {
+        navigateToPage(homePage, { replace: true });
+        return;
+    }
+
+    renderCurrentPage(page);
+}
+
+window.addEventListener('hashchange', router);
+window.addEventListener('pageshow', event => {
+    if (event.persisted) router();
+});
+
 if (!localStorage.getItem('nms_lang')) {
     localStorage.setItem('nms_lang', 'hi');
 }
 
-// Auto-refresh Lucide icons
 function refreshIcons() {
     if (window.lucide && typeof window.lucide.createIcons === 'function') {
         window.lucide.createIcons();
     }
 }
 
-// Observe DOM updates to automatically render any data-lucide icons
 let iconTimeout;
 const iconObserver = new MutationObserver(() => {
     clearTimeout(iconTimeout);
     iconTimeout = setTimeout(refreshIcons, 30);
 });
+
 document.addEventListener('DOMContentLoaded', () => {
     iconObserver.observe(document.body, { childList: true, subtree: true });
     refreshIcons();
 });
+
 if (document.body) {
     iconObserver.observe(document.body, { childList: true, subtree: true });
     refreshIcons();
 }
 
-// Start router
 router();

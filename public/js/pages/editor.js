@@ -272,7 +272,7 @@ async function refreshEditorNews(showToastMessage = false) {
 function initEditorFreshness() {
     clearInterval(_editorRefreshTimer);
     _editorRefreshTimer = setInterval(() => {
-        if (window.location.hash === '#/editor' && !document.hidden && !document.getElementById('articleModal')) {
+        if (isCurrentPage('editor') && !document.hidden && !document.getElementById('articleModal')) {
             refreshEditorNews(false);
         }
     }, 20000);
@@ -292,15 +292,15 @@ function initEditorFreshness() {
 }
 
 function refreshEditorNewsOnVisible() {
-    if (!document.hidden && window.location.hash === '#/editor' && !document.getElementById('articleModal')) refreshEditorNews(false);
+    if (!document.hidden && isCurrentPage('editor') && !document.getElementById('articleModal')) refreshEditorNews(false);
 }
 
 function refreshEditorNewsOnFocus() {
-    if (window.location.hash === '#/editor' && !document.getElementById('articleModal')) refreshEditorNews(false);
+    if (isCurrentPage('editor') && !document.getElementById('articleModal')) refreshEditorNews(false);
 }
 
 function refreshEditorNewsOnScroll() {
-    if (window.location.hash !== '#/editor' || editorTab !== 'raw') return;
+    if (!isCurrentPage('editor') || editorTab !== 'raw') return;
     if (document.getElementById('articleModal')) return;
     const now = Date.now();
     if (now - _lastEditorScrollRefresh < 15000) return;

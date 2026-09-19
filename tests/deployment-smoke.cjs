@@ -72,6 +72,44 @@ const { once } = require('node:events');
             assert.equal(res.status, expected, `${method} ${endpoint}: ${res.status}`);
             return res;
         };
+
+        const rolePages = {
+            '/login/': ['/js/pages/login.js'],
+            '/reporter/': ['/js/pages/reporter.js'],
+            // The existing sub-editor welcome/terms flow is implemented in
+            // reporter.js, so that module remains an explicit shared dependency.
+            '/sub-editor/': ['/js/pages/reporter.js', '/js/pages/subEditor.js'],
+            '/editor/': ['/js/pages/editor.js'],
+            '/ad-manager/': ['/js/pages/adManager.js'],
+            '/operator/': ['/js/pages/operator.js'],
+            '/admin/': ['/js/pages/admin.js'],
+            '/profile/': ['/js/pages/profile.js']
+        };
+        const allRoleScripts = [...new Set(Object.values(rolePages).flat())];
+        for (const [pagePath, expectedScripts] of Object.entries(rolePages)) {
+            const pageResponse = await fetch(base + pagePath);
+            assert.equal(pageResponse.status, 200, `GET ${pagePath}: ${pageResponse.status}`);
+            const html = await pageResponse.text();
+            assert.match(html, /data-nms-page=/, `${pagePath} must declare its page identity`);
+            for (const expectedScript of expectedScripts) {
+                assert.ok(html.includes(expectedScript), `${pagePath} must load ${expectedScript}`);
+            }
+            for (const otherScript of allRoleScripts) {
+                if (!expectedScripts.includes(otherScript)) {
+                    assert.ok(!html.includes(otherScript), `${pagePath} must not load ${otherScript}`);
+                }
+            }
+        }
+        const gatewayHtml = await (await fetch(base + '/')).text();
+        assert.ok(gatewayHtml.includes('data-nms-page="gateway"'));
+        assert.ok(allRoleScripts.every(script => !gatewayHtml.includes(script)));
+
+        const pageCacheResponse = await fetch(base + '/login/');
+        assert.match(pageCacheResponse.headers.get('cache-control') || '', /no-store/);
+        const scriptCacheResponse = await fetch(base + '/js/app.js?v=12');
+        assert.match(scriptCacheResponse.headers.get('cache-control') || '', /max-age=31536000/);
+        assert.match(scriptCacheResponse.headers.get('cache-control') || '', /immutable/);
+
         await request('/api/health');
         await request('/api/auth/me', 'GET', undefined, 401);
         const adminToken = (await (await request('/api/auth/login', 'POST', { username: 'admin', password })).json()).token;
@@ -179,15 +217,16 @@ const { once } = require('node:events');
         profile.append('avatar', new Blob([bytes], { type: 'image/png' }), 'avatar.png');
         const updated = await (await request('/api/profile', 'PUT', profile)).json();
         await request(updated.profile.avatar_path);
-        const removable = await (await request('/api/reporter/news', 'POST', {
-            headline: 'Remove me', body: 'This raw article is used to test deletion.', category: 'local'
-        })).json();
+        const removableForm = new FormData();
+        for (const [k, v] of Object.entries({ headline: 'Remove me', body: 'This raw article is used to test deletion.', category: 'local' })) removableForm.set(k, v);
+        removableForm.append('images', new Blob([bytes], { type: 'image/png' }), 'remove-test.png');
+        const removable = await (await request('/api/reporter/news', 'POST', removableForm)).json();
         token = editorToken;
         await request(`/api/editor/news/${removable.id}/delete`, 'POST', {});
         await request(`/api/editor/news/${removable.id}`, 'GET', undefined, 404);
         await request('/api/does-not-exist', 'GET', undefined, 404);
         assert.ok(fs.existsSync(path.join(dataDir, 'news.db')));
-        console.log('PASS: fresh production startup, authentication, article workflow, image upload/download/ZIP, avatars, and API 404.');
+        console.log('PASS: multi-page isolation, fresh production startup, authentication, article workflow, image upload/download/ZIP, avatars, and API 404.');
     } finally {
         if (child.exitCode === null) { child.kill('SIGTERM'); await once(child, 'exit'); }
         await new Promise(resolve => externalServer.close(resolve));
