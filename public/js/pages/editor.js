@@ -1987,6 +1987,21 @@ let _apiPdfPollTimer = null;
 let _apiPdfElapsedTimer = null;
 let _apiPdfWaitStartedAt = 0;
 
+// Clears the (currently unused) PDF-wait polling timers and hides the wait
+// status box. Was being called from backToApiTargets() without ever having
+// been defined, which threw a ReferenceError and silently aborted the
+// function before it could switch screens back -- i.e. the back button.
+function stopApiPdfWait() {
+    if (_apiPdfPollTimer) { clearInterval(_apiPdfPollTimer); _apiPdfPollTimer = null; }
+    if (_apiPdfElapsedTimer) { clearInterval(_apiPdfElapsedTimer); _apiPdfElapsedTimer = null; }
+    _apiPdfWaitStartedAt = 0;
+    const status = document.getElementById('apiBundleWaitStatus');
+    if (status) {
+        status.classList.add('hidden');
+        status.innerHTML = '';
+    }
+}
+
 // Single back button for the API screen: goes up one level at a time --
 // out of the news list to the target list, then out of the target list to
 // the More menu -- instead of showing two stacked back buttons at once.
@@ -2086,12 +2101,96 @@ async function loadApiTargets() {
                         AI rewritten: <strong style="color:${count > 0 ? 'var(--accent-green)' : 'inherit'}">${count}</strong>
                     </div>
                 </div>
-                ${icon('chevron-right', 20)}
+                <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                    <button type="button" class="btn btn-primary btn-xs" style="white-space:nowrap; background:var(--accent-green,#16a34a); border-color:var(--accent-green,#16a34a);"
+                        onclick="event.stopPropagation(); generateApiPdfForTarget(${t.id}, '${escapeHtml(t.full_name)}', this)"
+                        title="आज (24hr) की सभी RAW + AI rewritten खबरें एक साथ PageMint भेजें">
+                        ${icon('send', 12)} PDF जनरेट करें
+                    </button>
+                    ${icon('chevron-right', 18)}
+                </div>
             </div>
         `}).join('');
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
     }
+}
+
+/**
+ * One-click shortcut from the target list: pulls today's (आज / under-24h)
+ * RAW and AI-rewritten news for this target and sends whichever of the two
+ * bundles are non-empty to PageMint -- the same two API calls
+ * sendApiBothNewspaperBundles() makes after a manual selection, just without
+ * having to open the target and select every card by hand first.
+ */
+async function generateApiPdfForTarget(targetId, targetName, buttonEl) {
+    if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'लोड हो रहा है...'; }
+
+    let rawToday = [];
+    let aiToday = [];
+    try {
+        const data = await api(`/editor/api-targets/${targetId}/news?sort=latest`);
+        rawToday = (data.raw_news || []).filter(isApiNewsToday);
+        aiToday = (data.news || []).filter(isApiNewsToday);
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+        if (buttonEl) { buttonEl.disabled = false; buttonEl.innerHTML = `${icon('send', 12)} PDF जनरेट करें`; }
+        return;
+    }
+
+    if (rawToday.length === 0 && aiToday.length === 0) {
+        showToast(`${targetName} की आज (24hr) की कोई RAW या AI rewritten खबर उपलब्ध नहीं है`, 'error');
+        if (buttonEl) { buttonEl.disabled = false; buttonEl.innerHTML = `${icon('send', 12)} PDF जनरेट करें`; }
+        return;
+    }
+
+    const parts = [];
+    if (rawToday.length > 0) parts.push(`${rawToday.length} RAW`);
+    if (aiToday.length > 0) parts.push(`${aiToday.length} AI rewritten`);
+    if (!confirm(`क्या आप ${targetName} की आज की ${parts.join(' + ')} खबरें PageMint को भेजना चाहते हैं?`)) {
+        if (buttonEl) { buttonEl.disabled = false; buttonEl.innerHTML = `${icon('send', 12)} PDF जनरेट करें`; }
+        return;
+    }
+
+    if (buttonEl) buttonEl.textContent = 'भेज रहा है...';
+
+    let rawOk = rawToday.length === 0;
+    let aiOk = aiToday.length === 0;
+    let firstError = null;
+
+    if (rawToday.length > 0) {
+        try {
+            const res = await api('/editor/newspaper-generator/raw-bundle', {
+                method: 'POST',
+                body: JSON.stringify({ target_user_id: targetId, news_ids: rawToday.map(n => n.id), lead_news_id: null })
+            });
+            if (res.error) firstError = res.error; else rawOk = true;
+        } catch (err) {
+            firstError = t('common.error');
+        }
+    }
+
+    if (aiToday.length > 0) {
+        try {
+            const res = await api('/editor/newspaper-generator/bundle', {
+                method: 'POST',
+                body: JSON.stringify({ target_user_id: targetId, news_ids: aiToday.map(n => n.id), lead_news_id: null })
+            });
+            if (res.error) firstError = firstError || res.error; else aiOk = true;
+        } catch (err) {
+            firstError = firstError || t('common.error');
+        }
+    }
+
+    if (rawOk && aiOk) {
+        showToast(`${targetName} की आज की ${parts.join(' + ')} खबरें भेज दी गईं`, 'success');
+    } else if (rawOk || aiOk) {
+        showToast(`एक बंडल भेज दिया गया, दूसरे में समस्या: ${firstError || ''}`, 'error');
+    } else {
+        showToast(firstError || t('common.error'), 'error');
+    }
+
+    await loadApiTargets();
 }
 
 function backToApiTargets() {
@@ -2160,6 +2259,10 @@ function getApiNewsDateKey(news) {
     const ts = getApiNewsTimestamp(news);
     if (!ts) return 'unknown';
     return API_NEWS_DATE_FMT.format(new Date(ts));
+}
+
+function isApiNewsToday(news) {
+    return getApiNewsDateKey(news) === API_NEWS_DATE_FMT.format(new Date());
 }
 
 function formatApiNewsDateLabel(dateKey) {
@@ -2244,10 +2347,11 @@ function renderApiNewsList() {
     const sortedNews = getSortedApiNews();
     const selectAll = document.getElementById('selectAllApiNews');
     if (selectAll) {
-        const allVisible = [...sortedRaw, ...sortedNews];
-        selectAll.checked = allVisible.length > 0
-            && sortedRaw.every(n => _selectedApiRawNews.has(n.id))
-            && sortedNews.every(n => _selectedApiNews.has(n.id));
+        const todayRaw = sortedRaw.filter(isApiNewsToday);
+        const todayNews = sortedNews.filter(isApiNewsToday);
+        selectAll.checked = (todayRaw.length + todayNews.length) > 0
+            && todayRaw.every(n => _selectedApiRawNews.has(n.id))
+            && todayNews.every(n => _selectedApiNews.has(n.id));
     }
 
     if (sortedRaw.length === 0 && sortedNews.length === 0) {
@@ -2299,20 +2403,24 @@ function toggleApiNewsSelection(id) {
         _selectedApiNews.add(id);
         if (chk) chk.checked = true;
     }
-    const visibleNews = getSortedApiNews();
+    const todayNews = getSortedApiNews().filter(isApiNewsToday);
     const selectAll = document.getElementById('selectAllApiNews');
-    if (selectAll) selectAll.checked = visibleNews.length > 0 && visibleNews.every(n => _selectedApiNews.has(n.id));
+    if (selectAll) selectAll.checked = todayNews.length > 0 && todayNews.every(n => _selectedApiNews.has(n.id));
     updateApiBundleToolbar();
 }
 
+// "सभी चुनें" only ever selects today's (आज / under-24h) news, in both the
+// RAW and AI-rewritten lists -- older items sitting in yesterday's/earlier
+// date groups are left untouched, so one click can't silently bundle
+// already-aged news alongside today's.
 function toggleSelectAllApiNews(checked) {
-    getSortedApiRawNews().forEach(n => {
+    getSortedApiRawNews().filter(isApiNewsToday).forEach(n => {
         if (checked) _selectedApiRawNews.add(n.id);
         else _selectedApiRawNews.delete(n.id);
         const chk = document.getElementById(`api-raw-chk-${n.id}`);
         if (chk) chk.checked = checked;
     });
-    getSortedApiNews().forEach(n => {
+    getSortedApiNews().filter(isApiNewsToday).forEach(n => {
         if (checked) _selectedApiNews.add(n.id);
         else _selectedApiNews.delete(n.id);
         const chk = document.getElementById(`api-chk-${n.id}`);
@@ -2336,14 +2444,13 @@ function toggleApiRawNewsSelection(id) {
         _selectedApiRawNews.add(id);
         if (chk) chk.checked = true;
     }
-    const sortedRaw = getSortedApiRawNews();
-    const sortedNews = getSortedApiNews();
+    const todayRaw = getSortedApiRawNews().filter(isApiNewsToday);
+    const todayNews = getSortedApiNews().filter(isApiNewsToday);
     const selectAll = document.getElementById('selectAllApiNews');
     if (selectAll) {
-        const allVisible = [...sortedRaw, ...sortedNews];
-        selectAll.checked = allVisible.length > 0
-            && sortedRaw.every(n => _selectedApiRawNews.has(n.id))
-            && sortedNews.every(n => _selectedApiNews.has(n.id));
+        selectAll.checked = (todayRaw.length + todayNews.length) > 0
+            && todayRaw.every(n => _selectedApiRawNews.has(n.id))
+            && todayNews.every(n => _selectedApiNews.has(n.id));
     }
     updateApiBundleToolbar();
 }
