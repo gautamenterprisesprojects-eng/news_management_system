@@ -65,6 +65,14 @@ function pickAuthorField(author, keys) {
     return '';
 }
 
+function absoluteUrlWithBase(path, baseUrl) {
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    const base = String(baseUrl || '').replace(/\/$/, '');
+    if (!base) return String(path);
+    return `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
 function normalizeEditorialAuthor(author, req) {
     const name = pickAuthorField(author, ['name']);
     const imagePath = pickAuthorField(author, ['image_url', 'imageUrl']);
@@ -82,6 +90,83 @@ function normalizeEditorialAuthor(author, req) {
         designation,
         title: designation
     };
+}
+
+function buildEditorialAuthorFromTargetUser(targetUser, baseUrl) {
+    const name = pickAuthorField(targetUser, ['name_hi', 'full_name', 'name_en']);
+    const location = pickAuthorField(targetUser, ['print_place_name', 'district', 'city']);
+    const designation = pickAuthorField(targetUser, ['print_designation', 'post']) || 'ब्यूरो चीफ';
+    const image_url = absoluteUrlWithBase(pickAuthorField(targetUser, ['avatar_path']), baseUrl);
+
+    return {
+        name,
+        image_url,
+        imageUrl: image_url,
+        location,
+        place: location,
+        city: location,
+        designation,
+        title: designation,
+        target_user_id: targetUser.id
+    };
+}
+
+function buildStoredFallbackEditorialAuthor(baseUrl) {
+    const stored = loadStoredPublisherProfile();
+    const city = pickAuthorField(stored, ['city']);
+    const rawAuthors = Array.isArray(stored.editorial_authors) ? stored.editorial_authors : [];
+
+    if (rawAuthors.length > 0) {
+        const row = rawAuthors[0];
+        const name = pickAuthorField(row, ['name']);
+        const image_url = absoluteUrlWithBase(pickAuthorField(row, ['image_url', 'imageUrl']), baseUrl);
+        const location = pickAuthorField(row, ['location', 'place', 'city']) || city;
+        const designation = pickAuthorField(row, ['designation', 'title']) || 'ब्यूरो चीफ';
+        if (name || image_url) {
+            return {
+                name,
+                image_url,
+                imageUrl: image_url,
+                location,
+                place: location,
+                city: location || city,
+                designation,
+                title: designation
+            };
+        }
+    }
+
+    const fallbackName = pickAuthorField(stored, ['editorial_author_name']);
+    const fallbackImage = absoluteUrlWithBase(
+        pickAuthorField(stored, ['editorial_author_image_url', 'editorial_author_imageUrl']),
+        baseUrl
+    );
+    const fallbackDesignation = pickAuthorField(stored, ['editorial_author_designation']) || 'ब्यूरो चीफ';
+    if (!fallbackName && !fallbackImage) return null;
+
+    return {
+        name: fallbackName,
+        image_url: fallbackImage,
+        imageUrl: fallbackImage,
+        location: city,
+        place: city,
+        city,
+        designation: fallbackDesignation,
+        title: fallbackDesignation
+    };
+}
+
+/**
+ * CliffFrontEditorRail8A: who sent the bundle (API target) fills the front-page left rail.
+ */
+function buildBundleEditorialRailForPageMint(targetUser, baseUrl) {
+    if (targetUser) {
+        const fromTarget = buildEditorialAuthorFromTargetUser(targetUser, baseUrl);
+        if (fromTarget.name || fromTarget.image_url) {
+            return fromTarget;
+        }
+    }
+    return buildStoredFallbackEditorialAuthor(baseUrl);
 }
 
 /**
@@ -179,6 +264,7 @@ module.exports = {
     loadStoredPublisherProfile,
     saveStoredPublisherProfile,
     buildPublisherProfileResponse,
+    buildBundleEditorialRailForPageMint,
     getAdminPublisherProfile,
     updateAdminPublisherProfile,
     toAbsoluteAssetUrl
