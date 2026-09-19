@@ -271,6 +271,19 @@ async function initDatabase() {
         }
     })();
 
+    // One-time grandfather: api_pdfs rows written before the editor-approval
+    // gate existed (PageMint's own passthrough status, e.g. 'generated', or
+    // NULL) were already visible/downloadable to their reporter/sub-editor.
+    // Treat them as already-approved instead of retroactively locking PDFs
+    // people already had access to -- the gate only governs rows the webhook
+    // inserts as 'pending' from here on. Safe to re-run: already-tagged rows
+    // (pending/approved/rejected) never match this WHERE clause again.
+    db.exec(`
+        UPDATE api_pdfs
+        SET status = 'approved'
+        WHERE status IS NULL OR status NOT IN ('pending', 'approved', 'rejected')
+    `);
+
     // ============================================================
     // TABLE: news_copies
     // ============================================================
