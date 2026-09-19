@@ -68,6 +68,7 @@ function userSelectSql() {
         SELECT u.id, u.username, u.full_name, u.role, u.status, u.created_at,
                u.post, u.name_hi, u.name_en, u.city, u.district, u.assigned_sub_editor_id,
                u.is_api_enabled, u.print_designation, u.print_place_name, u.avatar_path,
+               u.email, u.phone,
                se.full_name as assigned_sub_editor_name,
                se.name_hi as assigned_sub_editor_name_hi
         FROM users u
@@ -226,11 +227,27 @@ router.post('/users', (req, res) => {
 router.put('/users/:id', (req, res) => {
     try {
         const { id } = req.params;
-        const { full_name, password, status, post, name_hi, name_en, city, district, assigned_sub_editor_id } = req.body;
+        const { full_name, password, status, post, name_hi, name_en, city, district, assigned_sub_editor_id, role, email, phone } = req.body;
 
-        const user = queryGet('SELECT id FROM users WHERE id = ?', [id]);
+        const user = queryGet('SELECT id, role FROM users WHERE id = ?', [id]);
         if (!user) {
             return res.status(404).json({ error: 'User not found.' });
+        }
+
+        if (role !== undefined && role !== '' && role !== user.role) {
+            if (user.role === 'admin' || role === 'admin') {
+                return res.status(400).json({ error: 'Admin की भूमिका इस स्क्रीन से नहीं बदली जा सकती।' });
+            }
+            if (!USER_ROLES.includes(role)) {
+                return res.status(400).json({ error: 'अमान्य भूमिका।' });
+            }
+            queryRun('UPDATE users SET role = ? WHERE id = ?', [role, id]);
+        }
+        if (email !== undefined) {
+            queryRun('UPDATE users SET email = ? WHERE id = ?', [email, id]);
+        }
+        if (phone !== undefined) {
+            queryRun('UPDATE users SET phone = ? WHERE id = ?', [phone, id]);
         }
 
         if (full_name) {
@@ -323,22 +340,60 @@ router.post('/users/:id/avatar', upload.single('avatar'), (req, res) => {
 
 /**
  * DELETE /api/admin/users/:id
+ * Permanently removes a user. If the account has no associated content
+ * anywhere (never submitted news, no PDFs, no bundles, etc.), the row is
+ * fully deleted and the username is immediately free for reuse. If it has
+ * real content, the row is kept (so that content stays attributable and
+ * intact) but archived: status becomes 'deleted' and the username is
+ * renamed, which frees the ORIGINAL username for a brand-new account right
+ * away -- the specific thing this route exists for. Either way this cannot
+ * be undone from the UI.
  */
 router.delete('/users/:id', (req, res) => {
     try {
         const { id } = req.params;
-        const user = queryGet('SELECT id, role FROM users WHERE id = ?', [id]);
+        const user = queryGet('SELECT id, username, role FROM users WHERE id = ?', [id]);
         if (!user) {
             return res.status(404).json({ error: 'User not found.' });
         }
         if (user.role === 'admin') {
-            return res.status(400).json({ error: 'Cannot deactivate admin account.' });
+            return res.status(400).json({ error: 'Admin account को डिलीट नहीं किया जा सकता।' });
         }
-        queryRun('UPDATE users SET status = ? WHERE id = ?', ['inactive', id]);
-        res.json({ message: 'User deactivated.' });
+
+        const contentCount =
+            queryGet('SELECT COUNT(*) c FROM news WHERE reporter_id = ? OR editor_id = ? OR sub_editor_id = ? OR rejected_by = ?', [id, id, id, id]).c +
+            queryGet('SELECT COUNT(*) c FROM api_pdfs WHERE target_user_id = ? OR reviewed_by = ?', [id, id]).c +
+            queryGet('SELECT COUNT(*) c FROM pagemint_bundles WHERE target_user_id = ?', [id]).c +
+            queryGet('SELECT COUNT(*) c FROM pagemint_rewritten_articles WHERE target_user_id = ?', [id]).c +
+            queryGet('SELECT COUNT(*) c FROM news_copies WHERE operator_id = ?', [id]).c +
+            queryGet('SELECT COUNT(*) c FROM advertisements WHERE sub_editor_id = ? OR editor_id = ?', [id, id]).c;
+
+        // Either way, other users' stale references to this id are safe to
+        // clear -- every read that matters (findAssignedSubEditor,
+        // requireRole, the api-targets queries) already re-validates
+        // role/status live, so this is cleanup, not a correctness fix.
+        queryRun('UPDATE users SET assigned_sub_editor_id = NULL WHERE assigned_sub_editor_id = ?', [id]);
+        queryRun('UPDATE users SET assigned_editor_id = NULL WHERE assigned_editor_id = ?', [id]);
+        queryRun('UPDATE users SET created_by = NULL WHERE created_by = ?', [id]);
+        queryRun('DELETE FROM push_subscriptions WHERE user_id = ?', [id]);
+
+        if (contentCount === 0) {
+            queryRun('DELETE FROM users WHERE id = ?', [id]);
+            return res.json({
+                message: `यूज़र @${user.username} पूरी तरह डिलीट कर दिया गया। यह यूज़रनेम अब तुरंत उपलब्ध है।`,
+                mode: 'deleted'
+            });
+        }
+
+        const archivedUsername = `deleted_${id}_${Date.now()}`;
+        queryRun("UPDATE users SET status = 'deleted', username = ? WHERE id = ?", [archivedUsername, id]);
+        res.json({
+            message: `इस यूज़र की ${contentCount} जुड़ी हुई एंट्रीज़ (खबरें/PDF/आदि) हैं, इसलिए इतिहास सुरक्षित रखने के लिए प्रोफ़ाइल आर्काइव कर दी गई। यूज़रनेम @${user.username} अब तुरंत एक नए अकाउंट के लिए उपलब्ध है।`,
+            mode: 'archived'
+        });
     } catch (err) {
         console.error('Admin delete user error:', err);
-        res.status(500).json({ error: 'Failed to deactivate user.' });
+        res.status(500).json({ error: 'Failed to delete user.' });
     }
 });
 

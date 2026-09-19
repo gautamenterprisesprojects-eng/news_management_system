@@ -11,8 +11,12 @@ let db = null;
 function migrateUsersRoleConstraint() {
     const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get();
     if (!table?.sql) return;
-    // Trigger when sub_editor or ad_manager is missing from the CHECK constraint
-    if (table.sql.includes("'sub_editor'") && table.sql.includes("'ad_manager'")) return;
+    // Trigger when sub_editor/ad_manager is missing from the role CHECK, or
+    // 'deleted' is missing from the status CHECK (added for permanent-delete
+    // archiving -- see DELETE /api/admin/users/:id).
+    const hasRoles = table.sql.includes("'sub_editor'") && table.sql.includes("'ad_manager'");
+    const hasDeletedStatus = table.sql.includes("'deleted'");
+    if (hasRoles && hasDeletedStatus) return;
 
     db.transaction(() => {
         db.exec(`
@@ -35,7 +39,7 @@ function migrateUsersRoleConstraint() {
                 print_designation TEXT,
                 print_place_name TEXT,
                 role TEXT NOT NULL CHECK(role IN ('admin', 'editor', 'reporter', 'operator', 'sub_editor', 'ad_manager')),
-                status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
+                status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive','deleted')),
                 created_by INTEGER,
                 created_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
@@ -87,7 +91,7 @@ async function initDatabase() {
             print_designation TEXT,
             print_place_name TEXT,
             role TEXT NOT NULL CHECK(role IN ('admin', 'editor', 'reporter', 'operator', 'sub_editor', 'ad_manager')),
-            status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
+            status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive','deleted')),
             created_by INTEGER,
             created_at TEXT DEFAULT (datetime('now', 'localtime'))
         )

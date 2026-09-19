@@ -480,6 +480,13 @@ function editUserModal(id) {
                 <div class="modal-body">
                     <h2 class="modal-headline" data-i18n="admin.edit_user">${t('admin.edit_user')}</h2>
                     <div class="form-group">
+                        <label class="form-label">भूमिका (Role)</label>
+                        <select class="form-input form-select" id="editUserRole">
+                            ${['reporter', 'editor', 'operator', 'sub_editor', 'ad_manager'].map(r => `<option value="${r}" ${role === r ? 'selected' : ''}>${r}</option>`).join('')}
+                        </select>
+                        <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">उदाहरण: reporter को sub_editor में बदलने के लिए यहां से चुनें।</p>
+                    </div>
+                    <div class="form-group">
                         <label class="form-label" data-i18n="admin.full_name">${t('admin.full_name')}</label>
                         <input type="text" class="form-input" id="editUserName" value="${name}">
                     </div>
@@ -491,7 +498,15 @@ function editUserModal(id) {
                         <label class="form-label">Hindi Name</label>
                         <input type="text" class="form-input" id="editUserNameHi" value="${name_hi}">
                     </div>
-                    ${role === 'sub_editor' ? `
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" id="editUserEmail" value="${escapeHtml(u.email || '')}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Phone</label>
+                        <input type="text" class="form-input" id="editUserPhone" value="${escapeHtml(u.phone || '')}">
+                    </div>
+                    ${(role === 'sub_editor' || role === 'reporter') ? `
                         <div class="form-group">
                             <label class="form-label">English Name</label>
                             <input type="text" class="form-input" id="editUserNameEn" value="${name_en}">
@@ -538,6 +553,9 @@ function editUserModal(id) {
                         <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">Upload an image to set or update this user's profile photo.</p>
                     </div>
                     <button class="btn btn-primary btn-full mt-4" onclick="updateUser(${id}, '${role}')" data-i18n="admin.update_btn">${t('admin.update_btn')}</button>
+                    <button class="btn btn-danger btn-full mt-2" onclick="deleteUserPermanently(${id}, '${escapeHtml(u.username)}')">
+                        🗑️ प्रोफ़ाइल स्थायी रूप से डिलीट करें
+                    </button>
                 </div>
             </div>
         </div>
@@ -554,7 +572,10 @@ async function updateUser(id, role) {
     const password = document.getElementById('editUserPassword').value;
     const post = document.getElementById('editUserPost').value.trim();
     const name_hi = document.getElementById('editUserNameHi').value.trim();
-    
+
+    const roleEl = document.getElementById('editUserRole');
+    const emailEl = document.getElementById('editUserEmail');
+    const phoneEl = document.getElementById('editUserPhone');
     const nameEnEl = document.getElementById('editUserNameEn');
     const districtEl = document.getElementById('editUserDistrict');
     const isApiEnabledEl = document.getElementById('editUserIsApiEnabled');
@@ -562,6 +583,12 @@ async function updateUser(id, role) {
     const printPlaceNameEl = document.getElementById('editUserPrintPlaceName');
 
     const body = {};
+    if (roleEl && roleEl.value && roleEl.value !== role) {
+        if (!confirm(`भूमिका "${role}" से "${roleEl.value}" में बदलें? यह तुरंत लागू होगा।`)) return;
+        body.role = roleEl.value;
+    }
+    if (emailEl) body.email = emailEl.value.trim();
+    if (phoneEl) body.phone = phoneEl.value.trim();
     if (full_name) body.full_name = full_name;
     if (password) body.password = password;
     if (post !== undefined) body.post = post;
@@ -603,6 +630,34 @@ async function updateUser(id, role) {
         }
 
         showToast(t('admin.update_success'), 'success');
+        closeArticleModal();
+        loadUsers();
+    } catch (err) {
+        showToast(t('common.error'), 'error');
+    }
+}
+
+/**
+ * Permanently removes a user. If they have no associated content anywhere
+ * (news/PDFs/bundles/etc.) the row is fully deleted; if they do, the server
+ * archives the profile instead (keeps history intact) but frees the
+ * username immediately so a brand-new account can reuse it. Either way this
+ * cannot be undone, so this asks twice before calling the server.
+ */
+async function deleteUserPermanently(id, username) {
+    if (!confirm(`क्या आप वाकई @${username} को स्थायी रूप से डिलीट करना चाहते हैं?\n\nअगर इस यूज़र की कोई खबर/PDF/इतिहास नहीं है, तो यह पूरी तरह हट जाएगा।\nअगर है, तो प्रोफ़ाइल आर्काइव होगी (इतिहास सुरक्षित रहेगा) और @${username} तुरंत एक नए अकाउंट के लिए खाली हो जाएगा।\n\nयह वापस नहीं किया जा सकता।`)) {
+        return;
+    }
+    if (!confirm(`अंतिम पुष्टि: @${username} डिलीट करें?`)) {
+        return;
+    }
+    try {
+        const data = await api(`/admin/users/${id}`, { method: 'DELETE' });
+        if (data.error) {
+            showToast(data.error, 'error');
+            return;
+        }
+        showToast(data.message || 'यूज़र डिलीट कर दिया गया', 'success');
         closeArticleModal();
         loadUsers();
     } catch (err) {
