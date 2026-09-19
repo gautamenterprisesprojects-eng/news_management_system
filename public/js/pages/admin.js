@@ -479,13 +479,23 @@ function editUserModal(id) {
                 <button class="modal-close" onclick="closeArticleModal()">✕</button>
                 <div class="modal-body">
                     <h2 class="modal-headline" data-i18n="admin.edit_user">${t('admin.edit_user')}</h2>
-                    <div class="form-group">
-                        <label class="form-label">भूमिका (Role)</label>
-                        <select class="form-input form-select" id="editUserRole">
-                            ${['reporter', 'editor', 'operator', 'sub_editor', 'ad_manager'].map(r => `<option value="${r}" ${role === r ? 'selected' : ''}>${r}</option>`).join('')}
-                        </select>
-                        <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">उदाहरण: reporter को sub_editor में बदलने के लिए यहां से चुनें।</p>
-                    </div>
+                    ${(role === 'reporter' || role === 'sub_editor') ? `
+                        <div class="form-group">
+                            <label class="form-label">भूमिका (Role)</label>
+                            ${(role === 'reporter' && !is_api_enabled) ? `
+                                <select class="form-input form-select" id="editUserRole" disabled>
+                                    <option value="reporter" selected>reporter</option>
+                                </select>
+                                <p style="font-size:12px; color:var(--danger, #d33); margin-top:4px;">sub_editor में बदलने के लिए पहले नीचे "Enable API Newspaper Generation" चालू करें।</p>
+                            ` : `
+                                <select class="form-input form-select" id="editUserRole">
+                                    <option value="reporter" ${role === 'reporter' ? 'selected' : ''}>reporter</option>
+                                    <option value="sub_editor" ${role === 'sub_editor' ? 'selected' : ''}>sub_editor</option>
+                                </select>
+                                <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">reporter और sub_editor के बीच ही भूमिका बदली जा सकती है।</p>
+                            `}
+                        </div>
+                    ` : ''}
                     <div class="form-group">
                         <label class="form-label" data-i18n="admin.full_name">${t('admin.full_name')}</label>
                         <input type="text" class="form-input" id="editUserName" value="${name}">

@@ -229,17 +229,20 @@ router.put('/users/:id', (req, res) => {
         const { id } = req.params;
         const { full_name, password, status, post, name_hi, name_en, city, district, assigned_sub_editor_id, role, email, phone } = req.body;
 
-        const user = queryGet('SELECT id, role FROM users WHERE id = ?', [id]);
+        const user = queryGet('SELECT id, role, is_api_enabled FROM users WHERE id = ?', [id]);
         if (!user) {
             return res.status(404).json({ error: 'User not found.' });
         }
 
         if (role !== undefined && role !== '' && role !== user.role) {
-            if (user.role === 'admin' || role === 'admin') {
-                return res.status(400).json({ error: 'Admin की भूमिका इस स्क्रीन से नहीं बदली जा सकती।' });
+            const allowedSwap =
+                (user.role === 'reporter' && role === 'sub_editor') ||
+                (user.role === 'sub_editor' && role === 'reporter');
+            if (!allowedSwap) {
+                return res.status(400).json({ error: 'भूमिका केवल reporter ↔ sub_editor के बीच ही बदली जा सकती है।' });
             }
-            if (!USER_ROLES.includes(role)) {
-                return res.status(400).json({ error: 'अमान्य भूमिका।' });
+            if (user.role === 'reporter' && role === 'sub_editor' && !user.is_api_enabled) {
+                return res.status(400).json({ error: 'केवल API-enabled reporter को ही sub_editor बनाया जा सकता है।' });
             }
             queryRun('UPDATE users SET role = ? WHERE id = ?', [role, id]);
         }
