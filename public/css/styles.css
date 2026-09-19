@@ -183,7 +183,12 @@ input, textarea, select, button {
     top: 0;
     left: 0;
     right: 0;
-    height: var(--topbar-height);
+    /* border-box sizing means padding-top (the notch/Dynamic Island inset)
+       must be added on top of the visual bar height, not eat into it --
+       otherwise the logo/title/avatar get squeezed into a sliver and
+       overflow, becoming unreachable to taps. Matches .page-content's
+       padding-top below, which already assumes this exact total height. */
+    height: calc(var(--topbar-height) + var(--safe-area-top));
     padding-top: var(--safe-area-top);
     background: #ffffff;
     border-bottom: 2px solid var(--accent-orange);
@@ -454,7 +459,9 @@ input, textarea, select, button {
     bottom: 0;
     left: 0;
     right: 0;
-    height: var(--bottomnav-height);
+    /* Same fix as .top-bar: grow the box for the home-indicator inset
+       instead of letting it eat into the tab bar's own height. */
+    height: calc(var(--bottomnav-height) + var(--safe-area-bottom));
     padding-bottom: var(--safe-area-bottom);
     background: #ffffff;
     border-top: 1px solid #e2e8f0;
