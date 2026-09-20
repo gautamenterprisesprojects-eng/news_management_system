@@ -368,7 +368,7 @@ function renderRawNewsCards() {
                 <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); showCustomRewriteModal(${n.id})">
                     ${icon('gear',12)} ${t('editor.rewrite_custom_btn')}
                 </button>
-                <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); sendRawNewsToPageMint(${n.id}, this)" title="बिना AI rewrite — मूल खबर PageMint API">
+                <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); sendRawNewsToPageMint(${n.id}, this)" title="AI rewrite होकर PageMint API को भेजी जाएगी">
                     ${icon('server',12)} PageMint API (Raw)
                 </button>
                 <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); promptRejectNews(${n.id})">
@@ -2370,7 +2370,7 @@ function renderApiNewsList() {
     if (sortedRaw.length > 0) {
         sections.push(`
             <div style="margin-bottom:8px; font-size:13px; font-weight:600; color:var(--accent-orange); padding:0 4px;">
-                RAW खबरें (बिना AI rewrite — इसी ${escapeHtml(_selectedApiTargetName)} ID पर PageMint)
+                RAW खबरें (भेजते समय AI rewrite होकर इसी ${escapeHtml(_selectedApiTargetName)} ID पर PageMint)
             </div>
             ${groupApiNewsByDate(sortedRaw).map(group => `
                 ${dateHeaderHtml(group.label)}
@@ -2500,7 +2500,7 @@ async function sendApiRawNewspaperBundle() {
         return;
     }
     const name = _selectedApiTargetName || 'इस यूज़र';
-    if (!confirm(`क्या आप ${_selectedApiRawNews.size} RAW खबरों को ${name} की PageMint ID पर भेजना चाहते हैं? (मूल headline, body, images — बिना AI rewrite)`)) {
+    if (!confirm(`क्या आप ${_selectedApiRawNews.size} RAW खबरों को ${name} की PageMint ID पर भेजना चाहते हैं? (भेजने से पहले headline, body को AI rewrite करके सेव किया जाएगा)`)) {
         return;
     }
 
@@ -2538,7 +2538,7 @@ async function sendApiRawNewspaperBundle() {
 }
 
 async function sendRawNewsToPageMint(newsId, btn) {
-    if (!confirm('क्या आप इस RAW खबर को बिना AI rewrite के PageMint API जनरेटर में भेजना चाहते हैं? (मूल headline, body और images — reporter/sub-editor ID के साथ)')) {
+    if (!confirm('क्या आप इस RAW खबर को PageMint API जनरेटर में भेजना चाहते हैं? (भेजने से पहले headline, body को AI rewrite करके सेव किया जाएगा, फिर reporter/sub-editor ID के साथ भेजी जाएगी)')) {
         return;
     }
 

@@ -475,19 +475,9 @@ async function sendNewspaperBundle(payload) {
     };
 }
 
-/** Force PageMint bundle articles to use raw headline/body (no AI rewrite fields). */
-function prepareArticlesForRawPageMint(articles) {
-    return articles.map(article => ({
-        ...article,
-        headline_rewritten: null,
-        body_rewritten: null
-    }));
-}
-
 module.exports = {
     buildNewspaperPayload,
     extractPageMintSubheadings,
     sendNewspaperBundle,
-    getBaseUrl,
-    prepareArticlesForRawPageMint
+    getBaseUrl
 };

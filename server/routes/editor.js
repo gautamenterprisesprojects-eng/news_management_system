@@ -12,8 +12,7 @@ const { deliverForwardedNews, parseExternalNewsId } = require('../services/exter
 const {
     buildNewspaperPayload,
     sendNewspaperBundle,
-    getBaseUrl,
-    prepareArticlesForRawPageMint
+    getBaseUrl
 } = require('../services/newspaperGenerator');
 const { rewriteAndCachePageMintBundle, queuePageMintRewriteForNews } = require('../services/pageMintRewriteCache');
 const { sendPushToEditors } = require('../services/pushNotifications');
@@ -343,50 +342,6 @@ function notifyEditorsBundleSent({ targetUser, payload }) {
     }).catch(err => console.error('Editor push notification (bundle sent) error:', err));
 }
 
-function runPageMintRawBundleJob({ payload, newsIds, placeholders, targetUser }) {
-    setImmediate(async () => {
-        let stage = 'rewrite';
-        try {
-            markPageMintBundleRewriting(payload.job_id);
-            const rawPayload = {
-                ...payload,
-                meta: {
-                    ...(payload.meta || {}),
-                    schemaVersion: 'nms-pagemint-v2-raw-direct',
-                    pageMintAiRewrite: {
-                        enabled: false,
-                        rewritten: false,
-                        skipped: true,
-                        reason: 'raw-direct',
-                        skippedAt: new Date().toISOString()
-                    }
-                }
-            };
-            markPageMintBundleRewriteResult(payload.job_id, rawPayload, { rewritten: false });
-
-            stage = 'delivery';
-            markPageMintBundleDeliverySending(payload.job_id);
-            const delivery = await sendNewspaperBundle(rawPayload);
-            markPageMintBundleDeliveryResult(payload.job_id, delivery);
-            if (!delivery.delivered) {
-                console.error('Raw PageMint bundle delivery skipped:', delivery.error || 'not delivered');
-                return;
-            }
-
-            notifyEditorsBundleSent({ targetUser, payload: rawPayload });
-
-            console.log('Raw PageMint bundle sent (no AI rewrite):', {
-                job_id: rawPayload.job_id,
-                bundle_id: rawPayload.bundle_id,
-                article_count: rawPayload.count,
-                news_ids: newsIds
-            });
-        } catch (err) {
-            markPageMintBundleFailed(payload.job_id, stage, err);
-            console.error('Raw PageMint bundle error:', err);
-        }
-    });
-}
 
 function runPageMintBundleJob({ targetUser, payload, newsIds, placeholders }) {
     setImmediate(async () => {
@@ -818,6 +773,30 @@ router.post('/newspaper-generator/raw-bundle', async (req, res) => {
             return res.status(400).json({ error: 'Some selected raw news items do not belong to the API target.' });
         }
 
+        // Auto-rewrite each raw story via AI and persist it to the news row
+        // (the same rewrite-and-save path the manual "AI rewrite" review
+        // action uses) before handing it to PageMint -- PageMint should
+        // never receive un-rewritten copy just because this was sent
+        // through the quick "raw" send action. A rewrite failure on one
+        // story falls back to sending that story's original raw content
+        // rather than aborting the whole bundle.
+        const baseUrl = getBaseUrl(req);
+        for (const article of articles) {
+            if (article.body_rewritten && article.body_rewritten.trim()) continue;
+            try {
+                const rewritten = await rewriteAndSaveNews(article, {
+                    editorUserId: req.user.id,
+                    baseUrl
+                });
+                article.headline_rewritten = rewritten.headline_rewritten;
+                article.body_rewritten = rewritten.body_rewritten;
+                article.ai_provider = rewritten.ai_provider;
+                article.status = 'processed';
+            } catch (rewriteError) {
+                console.error(`Raw-bundle auto-rewrite failed for news ${article.id}, sending original raw content:`, rewriteError.message);
+            }
+        }
+
         const placeholders = newsIds.map(() => '?').join(',');
         const imageRows = queryAll(`
             SELECT news_id, id, image_path, is_selected, sort_order
@@ -833,24 +812,24 @@ router.post('/newspaper-generator/raw-bundle', async (req, res) => {
 
         const payload = buildNewspaperPayload({
             targetUser,
-            articles: prepareArticlesForRawPageMint(articles),
+            articles,
             imagesByNewsId,
-            baseUrl: getBaseUrl(req),
+            baseUrl,
             leadNewsId
         });
         payload.meta = {
             ...(payload.meta || {}),
-            rawDirect: true,
-            source: 'NMS_RAW'
+            rawDirect: false,
+            source: 'NMS_RAW_AUTOREWRITE'
         };
 
         insertPageMintBundleRecord({ targetUser, newsIds, payload, leadNewsId });
-        runPageMintRawBundleJob({ payload, newsIds, placeholders, targetUser });
+        runPageMintBundleJob({ targetUser, payload, newsIds, placeholders });
 
         res.json({
             success: true,
             accepted: true,
-            message: 'Raw news bundle started. PageMint will receive the original headline, body, and images (no AI rewrite).',
+            message: 'News bundle started. Each story was AI-rewritten and saved before being sent to PageMint.',
             job_id: payload.job_id,
             bundle_id: payload.bundle_id,
             target_user_id: targetUser.id,
@@ -1295,6 +1274,61 @@ router.post('/news/:id/images/:imageId/delete', (req, res) => {
 });
 
 /**
+ * Runs the AI rewrite for one raw news item and persists the result to its
+ * existing headline_rewritten/body_rewritten columns (moving it to
+ * 'processed'). Shared by the manual /news/:id/rewrite review action and
+ * the raw-bundle send path (which auto-rewrites before forwarding to
+ * PageMint) so the two stay in sync instead of drifting into separate
+ * copies of this logic.
+ */
+async function rewriteAndSaveNews(news, {
+    provider = null,
+    targetWords = 400,
+    numSubheadings = 3,
+    captionWords = 30,
+    includeImageCaption = true,
+    language = 'hi',
+    editorUserId,
+    baseUrl
+}) {
+    // Fetch reporter's profile for byline
+    const reporter = queryGet(
+        'SELECT full_name, name_hi, name_en, post, print_designation, print_place_name, city FROM users WHERE id = ?',
+        [news.reporter_id]
+    );
+
+    // Choose name based on language (Hindi article → name_hi, English → name_en)
+    const reporterName = language === 'hi'
+        ? (reporter?.name_hi || reporter?.full_name || '')
+        : (reporter?.name_en || reporter?.full_name || '');
+    const reporterPost = reporter?.print_designation || reporter?.post || '';
+    const city = news.city || reporter?.print_place_name || reporter?.city || '';
+
+    const result = await rewriteArticle(news.headline, news.body, {
+        provider,
+        targetWords,
+        numSubheadings,
+        captionWords,
+        includeImageCaption,
+        language,
+        reporterName,
+        reporterPost,
+        city
+    });
+
+    const usedProvider = provider || queryGet("SELECT value FROM settings WHERE key = 'ai_provider'")?.value || 'gemini';
+
+    // Save rewritten content and move it to processed review.
+    queryRun(
+        "UPDATE news SET headline_rewritten = ?, body_rewritten = ?, ai_provider = ?, status = 'processed', editor_id = ?, processed_at = datetime('now', 'localtime') WHERE id = ?",
+        [result.headline, result.body, usedProvider, editorUserId, news.id]
+    );
+    queuePageMintRewriteForNews(news.id, baseUrl);
+
+    return { headline_rewritten: result.headline, body_rewritten: result.body, ai_provider: usedProvider };
+}
+
+/**
  * POST /api/editor/news/:id/rewrite
  * Fetches reporter's name_hi/name_en/post and city, passes them to AI rewriter
  */
@@ -1317,50 +1351,21 @@ router.post('/news/:id/rewrite', async (req, res) => {
             language = 'hi'
         } = req.body;
 
-        // Fetch reporter's profile for byline
-        const reporter = queryGet(
-            'SELECT full_name, name_hi, name_en, post, print_designation, print_place_name, city FROM users WHERE id = ?',
-            [news.reporter_id]
-        );
-
-        // Choose name based on language (Hindi article → name_hi, English → name_en)
-        const reporterName = language === 'hi'
-            ? (reporter?.name_hi || reporter?.full_name || '')
-            : (reporter?.name_en || reporter?.full_name || '');
-        const reporterPost = reporter?.print_designation || reporter?.post || '';
-        const city = news.city || reporter?.print_place_name || reporter?.city || '';
-
         // Update status to processing
         queryRun('UPDATE news SET status = ? WHERE id = ?', ['processing', news.id]);
 
         try {
-            const result = await rewriteArticle(news.headline, news.body, {
+            const result = await rewriteAndSaveNews(news, {
                 provider,
                 targetWords,
                 numSubheadings,
                 captionWords,
                 includeImageCaption,
                 language,
-                reporterName,
-                reporterPost,
-                city
+                editorUserId: req.user.id,
+                baseUrl: getBaseUrl(req)
             });
-
-            const usedProvider = provider || queryGet("SELECT value FROM settings WHERE key = 'ai_provider'")?.value || 'gemini';
-
-            // Save rewritten content and move it to processed review.
-            queryRun(
-                "UPDATE news SET headline_rewritten = ?, body_rewritten = ?, ai_provider = ?, status = 'processed', editor_id = ?, processed_at = datetime('now', 'localtime') WHERE id = ?",
-                [result.headline, result.body, usedProvider, req.user.id, news.id]
-            );
-            queuePageMintRewriteForNews(news.id, getBaseUrl(req));
-
-            res.json({
-                id: news.id,
-                headline_rewritten: result.headline,
-                body_rewritten: result.body,
-                ai_provider: usedProvider
-            });
+            res.json({ id: news.id, ...result });
         } catch (aiError) {
             // Revert status on AI failure
             queryRun('UPDATE news SET status = ? WHERE id = ?', ['raw', news.id]);
