@@ -2924,6 +2924,7 @@ function previewApiPdf(btn) {
     const pdfUrl = btn.dataset.pdfUrl;
     const filename = btn.dataset.pdfFilename || 'newspaper.pdf';
     closeArticleModal();
+    enableModalPinchZoom();
 
     const html = `
         <div class="modal-overlay" id="articleModal" onclick="closeModalOutside(event)">
