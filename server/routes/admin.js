@@ -5,6 +5,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const { avatarsDir, uploadsDir, resolveUpload } = require('../storage');
+const { removeBackgroundInPlace } = require('../services/backgroundRemoval');
 const {
     getAdminPublisherProfile,
     updateAdminPublisherProfile
@@ -315,7 +316,7 @@ router.put('/users/:id', (req, res) => {
 /**
  * POST /api/admin/users/:id/avatar
  */
-router.post('/users/:id/avatar', upload.single('avatar'), (req, res) => {
+router.post('/users/:id/avatar', upload.single('avatar'), async (req, res) => {
     try {
         const { id } = req.params;
         const user = queryGet('SELECT id, avatar_path FROM users WHERE id = ?', [id]);
@@ -323,7 +324,8 @@ router.post('/users/:id/avatar', upload.single('avatar'), (req, res) => {
 
         if (!req.file) return res.status(400).json({ error: 'No image file uploaded.' });
 
-        const avatar_path = '/uploads/avatars/' + req.file.filename;
+        const { path: processedPath } = await removeBackgroundInPlace(req.file.path);
+        const avatar_path = '/uploads/avatars/' + path.basename(processedPath);
 
         if (user.avatar_path) {
             const oldPath = resolveUpload(user.avatar_path);

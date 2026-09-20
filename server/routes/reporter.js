@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { uploadsDir, resolveUpload } = require('../storage');
+const { removeBackgroundInPlace } = require('../services/backgroundRemoval');
 const multer = require('multer');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
@@ -251,13 +252,14 @@ router.get('/news/rejected', (req, res) => {
 /**
  * POST /api/reporter/photo
  */
-router.post('/photo', upload.single('photo'), (req, res) => {
+router.post('/photo', upload.single('photo'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No photo uploaded.' });
         }
 
-        const photoPath = `/uploads/${req.file.filename}`;
+        const { path: processedPath } = await removeBackgroundInPlace(req.file.path);
+        const photoPath = `/uploads/${path.basename(processedPath)}`;
 
         const oldUser = queryGet('SELECT avatar_path FROM users WHERE id = ?', [req.user.id]);
         if (oldUser && oldUser.avatar_path) {

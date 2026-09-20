@@ -186,7 +186,7 @@ async function uploadAvatar(input) {
     formData.append('photo', input.files[0]);
     
     try {
-        showToast('Uploading photo...', 'info');
+        showToast('Uploading photo & removing background... this can take up to 30 seconds', 'info');
         // We use reporter/photo endpoint as it works for any authenticated user via verifyToken
         const res = await api('/reporter/photo', {
             method: 'POST',

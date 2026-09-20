@@ -622,7 +622,13 @@ async function updateUser(id, role) {
         if (avatarInput && avatarInput.files.length > 0) {
             const formData = new FormData();
             formData.append('avatar', avatarInput.files[0]);
-            
+
+            const avatarStatusEl = document.getElementById('editUserAvatarStatus');
+            if (avatarStatusEl) {
+                avatarStatusEl.textContent = 'बैकग्राउंड हटाया जा रहा है... इसमें 30 सेकंड तक लग सकते हैं।';
+                avatarStatusEl.style.color = 'var(--accent-orange, #e67e22)';
+            }
+
             const avatarRes = await fetch(`/api/admin/users/${id}/avatar`, {
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + localStorage.getItem('nms_token') },

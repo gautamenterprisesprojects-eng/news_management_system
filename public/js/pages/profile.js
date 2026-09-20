@@ -220,8 +220,10 @@ async function saveProfile(e) {
     }
 
     const avatarInput = document.getElementById('profileAvatarInput');
-    if (avatarInput.files && avatarInput.files[0]) {
+    const hasNewAvatar = Boolean(avatarInput.files && avatarInput.files[0]);
+    if (hasNewAvatar) {
         formData.append('avatar', avatarInput.files[0]);
+        showToast('फोटो अपलोड हो रहा है, बैकग्राउंड हटाया जा रहा है... इसमें 30 सेकंड तक लग सकते हैं।', 'info');
     }
 
     try {

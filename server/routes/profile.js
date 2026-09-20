@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { getDb, queryGet, queryRun } = require('../db/init');
 const { verifyToken } = require('../middleware/auth');
+const { removeBackgroundInPlace } = require('../services/backgroundRemoval');
 
 // Configure multer for avatar uploads
 const storage = multer.diskStorage({
@@ -53,7 +54,7 @@ router.get('/', verifyToken, (req, res) => {
 
 // PUT /api/profile
 // Update current user profile
-router.put('/', verifyToken, upload.single('avatar'), (req, res) => {
+router.put('/', verifyToken, upload.single('avatar'), async (req, res) => {
     try {
         const { full_name, name_hi, name_en, post, email, phone, city, print_designation, print_place_name } = req.body;
 
@@ -74,7 +75,8 @@ router.put('/', verifyToken, upload.single('avatar'), (req, res) => {
 
         let avatar_path = null;
         if (req.file) {
-            avatar_path = '/uploads/avatars/' + req.file.filename;
+            const { path: processedPath } = await removeBackgroundInPlace(req.file.path);
+            avatar_path = '/uploads/avatars/' + path.basename(processedPath);
             updateSql = `UPDATE users SET full_name = COALESCE(?, full_name), name_hi = ?, name_en = ?, post = ?, email = ?, phone = ?, city = ?, avatar_path = ? WHERE id = ?`;
             params = [full_name, name_hi, name_en, post, email, phone, city, avatar_path, req.user.id];
             if (printDesignationValue !== undefined) {
