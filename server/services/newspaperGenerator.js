@@ -150,9 +150,14 @@ function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex, i
     const place = safeString(article.city || article.reporter_city || article.reporter_district);
     const reporterName = getReporterValue(article, language, 'name') || safeString(article.reporter_name);
     const reporterDesignation = safeString(article.reporter_print_designation || article.reporter_designation);
-    const reporterPlace = safeString(
-        article.reporter_print_place_name || article.reporter_city || article.reporter_district || place
+    // Byline place: the article's own dateline city first (each story can be
+    // filed from a different place than the reporter's home base); the
+    // reporter's registered print place / city / district is only a
+    // fallback for the rare case an article has no city set at all.
+    const reporterRegisteredPlace = safeString(
+        article.reporter_print_place_name || article.reporter_city || article.reporter_district
     );
+    const reporterPlace = safeString(article.city) || reporterRegisteredPlace;
     const reporterPhotoUrl = toAbsoluteUrlOrNull(article.reporter_photo_url, baseUrl);
     const byline = buildPageMintByline({
         name: reporterName,
