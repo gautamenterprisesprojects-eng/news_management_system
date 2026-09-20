@@ -109,6 +109,26 @@ function extractPageMintLabeledValue(bodyRewritten, labelPattern) {
     return '';
 }
 
+/**
+ * The AI rewrite prompt has the model write a standalone "brand, place" line
+ * immediately before the body (see aiRewriter.js's brand-location
+ * instruction), e.g. "द क्लिफ न्यूज़, कूचबिहार" -- or just the brand alone
+ * when it found no confident location. Unlike extractPageMintLabeledValue,
+ * this must match only that single line and stop -- the body starts on the
+ * very next line with no blank line separating them, so continuing to
+ * collect lines the way the caption/subheading extractors do would pull the
+ * start of the body in as part of the "place".
+ */
+function extractPageMintDatelinePlace(bodyRewritten, brandName) {
+    const escapedBrand = brandName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`^${escapedBrand}\\s*(?:,\\s*(.+))?$`);
+    for (const rawLine of safeString(bodyRewritten).split(/\r?\n/)) {
+        const match = rawLine.trim().match(pattern);
+        if (match) return safeString(match[1]);
+    }
+    return '';
+}
+
 function getReporterValue(article, language, suffix) {
     const languageSuffix = language === 'hi' ? `${suffix}_hi` : `${suffix}_en`;
     return safeString(article[`reporter_${languageSuffix}`]) || safeString(article[`reporter_${suffix}`]);
@@ -150,14 +170,20 @@ function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex, i
     const place = safeString(article.city || article.reporter_city || article.reporter_district);
     const reporterName = getReporterValue(article, language, 'name') || safeString(article.reporter_name);
     const reporterDesignation = safeString(article.reporter_print_designation || article.reporter_designation);
-    // Byline place: the article's own dateline city first (each story can be
-    // filed from a different place than the reporter's home base); the
-    // reporter's registered print place / city / district is only a
-    // fallback for the rare case an article has no city set at all.
+    // Byline place, in order: the article's own dateline city (each story
+    // can be filed from a different place than the reporter's home base);
+    // then the place the AI rewrite itself determined from the source and
+    // wrote as a "brand, place" line right before the body (see
+    // extractPageMintDatelinePlace) -- this is what actually gets set for
+    // most rewritten stories, since city is rarely set manually; the
+    // reporter's registered print place / city / district is the last
+    // resort, for a story with no city and no AI-determined place either.
+    const aiRewrittenBrandName = language === 'hi' ? 'द क्लिफ न्यूज़' : 'The Cliff News';
+    const aiDeterminedPlace = extractPageMintDatelinePlace(article.body_rewritten, aiRewrittenBrandName);
     const reporterRegisteredPlace = safeString(
         article.reporter_print_place_name || article.reporter_city || article.reporter_district
     );
-    const reporterPlace = safeString(article.city) || reporterRegisteredPlace;
+    const reporterPlace = safeString(article.city) || aiDeterminedPlace || reporterRegisteredPlace;
     const reporterPhotoUrl = toAbsoluteUrlOrNull(article.reporter_photo_url, baseUrl);
     const byline = buildPageMintByline({
         name: reporterName,
