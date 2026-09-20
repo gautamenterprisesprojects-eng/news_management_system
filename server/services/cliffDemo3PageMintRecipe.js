@@ -26,7 +26,7 @@
  */
 function buildCliffDemo3PageMintRecipe() {
     return {
-        schemaVersion: 'nms-pagemint-manual-recipe-v3',
+        schemaVersion: 'nms-pagemint-manual-recipe-v4',
         publisherId: 'cliffdemo3',
         newspaperName: 'THE CLIFF NEWS',
         newspaperNameHi: 'द क्लिफ न्यूज़',
@@ -60,6 +60,9 @@ function buildCliffDemo3PageMintRecipe() {
             // 'newspaper_name' -> byline = publication name (wizard default)
             // anything else    -> bundle sender / reporter name
             bylineSource: 'newspaper_name',
+            // NMS automated cliffdemo3 exports only: preserve the publication
+            // byline and add the real article reporter as one compact line above it.
+            reporterNameAboveByline: true,
         },
 
         fonts: {
