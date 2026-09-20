@@ -2959,11 +2959,13 @@ async function renderPdfIntoViewer(pdfUrl) {
     const scrollEl = document.getElementById('pdfViewerScroll');
     if (!container || !scrollEl) return;
 
+    const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('PDF render timed out')), ms));
+
     try {
         if (!window.pdfjsLib) throw new Error('PDF.js not loaded');
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/js/vendor/pdfjs/pdf.worker.min.js';
 
-        const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
+        const pdf = await Promise.race([window.pdfjsLib.getDocument(pdfUrl).promise, timeout(20000)]);
         container.innerHTML = '';
         const targetWidth = Math.max(200, scrollEl.clientWidth - 24);
 
