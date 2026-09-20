@@ -22,9 +22,9 @@ const storage = multer.diskStorage({
         cb(null, 'avatar-' + req.user.id + '-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
-const upload = multer({ 
+const upload = multer({
     storage: storage,
-    limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit -- matches reporter.js's photo upload and the global error handler's message
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
             cb(null, true);
