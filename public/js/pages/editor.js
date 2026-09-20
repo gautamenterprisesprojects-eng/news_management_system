@@ -2916,15 +2916,19 @@ async function loadPdfsForSelectedTarget() {
 
 /**
  * Opens a generated PDF in a scrollable in-app popup instead of a new
- * browser tab. The popup's own download button forces a real device
- * download via forceDownloadUrl (?dl=1 -> Content-Disposition: attachment),
- * same mechanism the card's regular download link already uses.
+ * browser tab. Renders pages onto canvases with PDF.js instead of an
+ * <iframe> -- an iframe's native PDF viewer has no way to be pinch-zoomed
+ * without also zooming the page behind it (there's no such thing as
+ * "zoom just this iframe" via the browser's own viewport), so pinch-zoom
+ * here is implemented directly on the rendered canvases via CSS zoom,
+ * fully scoped to the popup. The popup's download button forces a real
+ * device download via forceDownloadUrl (?dl=1 -> Content-Disposition:
+ * attachment), same mechanism the card's regular download link uses.
  */
 function previewApiPdf(btn) {
     const pdfUrl = btn.dataset.pdfUrl;
     const filename = btn.dataset.pdfFilename || 'newspaper.pdf';
     closeArticleModal();
-    enableModalPinchZoom();
 
     const html = `
         <div class="modal-overlay" id="articleModal" onclick="closeModalOutside(event)">
@@ -2935,7 +2939,11 @@ function previewApiPdf(btn) {
                     <div style="font-weight:600; font-size:0.9rem; word-break:break-all;">${escapeHtml(filename)}</div>
                     <a href="${forceDownloadUrl(pdfUrl, filename)}" download="${escapeHtml(filename)}" class="btn btn-primary btn-xs" style="flex-shrink:0;">${icon('download', 12)} डाउनलोड</a>
                 </div>
-                <iframe src="${pdfUrl}" style="flex:1; width:100%; border:none;" title="${escapeHtml(filename)}"></iframe>
+                <div id="pdfViewerScroll" style="flex:1; width:100%; overflow:auto; background:#4b5563;">
+                    <div id="pdfViewerPages" style="transform-origin:top center;">
+                        <div style="text-align:center; padding:40px; color:#fff;">PDF लोड हो रहा है...</div>
+                    </div>
+                </div>
             </div>
         </div>
     `;
@@ -2943,6 +2951,90 @@ function previewApiPdf(btn) {
     document.body.insertAdjacentHTML('beforeend', html);
     document.body.style.overflow = 'hidden';
     applyLanguage();
+    renderPdfIntoViewer(pdfUrl);
+}
+
+async function renderPdfIntoViewer(pdfUrl) {
+    const container = document.getElementById('pdfViewerPages');
+    const scrollEl = document.getElementById('pdfViewerScroll');
+    if (!container || !scrollEl) return;
+
+    try {
+        if (!window.pdfjsLib) throw new Error('PDF.js not loaded');
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
+        container.innerHTML = '';
+        const targetWidth = Math.max(200, scrollEl.clientWidth - 24);
+
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+            const page = await pdf.getPage(pageNum);
+            const baseViewport = page.getViewport({ scale: 1 });
+            const viewport = page.getViewport({ scale: targetWidth / baseViewport.width });
+
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            canvas.style.display = 'block';
+            canvas.style.margin = '12px auto';
+            canvas.style.background = '#fff';
+            canvas.style.boxShadow = '0 1px 6px rgba(0,0,0,0.35)';
+
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+            container.appendChild(canvas);
+        }
+
+        initPdfViewerPinchZoom();
+    } catch (err) {
+        console.error('PDF render failed', err);
+        container.innerHTML = `<div style="text-align:center; padding:40px; color:#fff;">PDF लोड नहीं हो सकी।<br><a href="${pdfUrl}" target="_blank" style="color:#fff; text-decoration:underline;">यहाँ खोलें</a></div>`;
+    }
+}
+
+/**
+ * Pinch-to-zoom scoped entirely to #pdfViewerPages via the CSS `zoom`
+ * property (not `transform: scale`, which doesn't affect layout size --
+ * `zoom` does, so the scroll container's native overflow/scrollbars grow
+ * with it and single-finger panning around a zoomed-in page keeps working
+ * for free). Never touches the page's own viewport, so the rest of the
+ * app behind the popup never moves. Double-tap resets to 100%.
+ */
+function initPdfViewerPinchZoom() {
+    const scrollEl = document.getElementById('pdfViewerScroll');
+    const pagesEl = document.getElementById('pdfViewerPages');
+    if (!scrollEl || !pagesEl) return;
+
+    let scale = 1;
+    let lastDist = null;
+    let lastTap = 0;
+    const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+
+    scrollEl.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) lastDist = dist(e.touches[0], e.touches[1]);
+    }, { passive: true });
+
+    scrollEl.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            const d = dist(e.touches[0], e.touches[1]);
+            if (lastDist) {
+                scale = Math.min(4, Math.max(1, scale * (d / lastDist)));
+                pagesEl.style.zoom = scale;
+            }
+            lastDist = d;
+        }
+    }, { passive: false });
+
+    scrollEl.addEventListener('touchend', (e) => {
+        if (e.touches.length >= 2) return;
+        lastDist = null;
+        const now = Date.now();
+        if (now - lastTap < 300) {
+            scale = 1;
+            pagesEl.style.zoom = 1;
+        }
+        lastTap = now;
+    }, { passive: true });
 }
 
 async function approveApiPdf(id, btn) {

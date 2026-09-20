@@ -76,23 +76,6 @@ function showArticleModal(options) {
     applyLanguage();
 }
 
-let _modalViewportRestore = null;
-
-/**
- * Lets pinch-zoom work inside the current modal (e.g. a PDF preview) by
- * relaxing the app's normally fixed viewport. Restored automatically the
- * next time closeArticleModal() runs, so callers never need their own
- * close handler just to undo this.
- */
-function enableModalPinchZoom() {
-    const viewportMeta = document.querySelector('meta[name="viewport"]');
-    if (!viewportMeta) return;
-    if (_modalViewportRestore === null) {
-        _modalViewportRestore = viewportMeta.getAttribute('content');
-    }
-    viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, minimum-scale=0.25, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover');
-}
-
 /**
  * Close article modal
  */
@@ -101,11 +84,6 @@ function closeArticleModal() {
     if (modal) {
         modal.remove();
         document.body.style.overflow = '';
-    }
-    if (_modalViewportRestore !== null) {
-        const viewportMeta = document.querySelector('meta[name="viewport"]');
-        if (viewportMeta) viewportMeta.setAttribute('content', _modalViewportRestore);
-        _modalViewportRestore = null;
     }
 }
 
