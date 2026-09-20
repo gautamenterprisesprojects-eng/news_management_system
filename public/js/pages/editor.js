@@ -2882,7 +2882,7 @@ async function loadPdfsForSelectedTarget() {
 
             const actions = st === 'rejected' ? '' : `
                 <div class="news-card-actions-row" style="border-top:none; margin-top:10px; padding-top:0;">
-                    <a href="${pdf.pdf_url}" target="_blank" class="btn btn-secondary btn-xs">${icon('eye', 12)} देखें</a>
+                    <button type="button" class="btn btn-secondary btn-xs" onclick="previewApiPdf(this)" data-pdf-url="${escapeHtml(pdf.pdf_url)}" data-pdf-filename="${escapeHtml(pdf.filename || 'newspaper.pdf')}">${icon('eye', 12)} देखें</button>
                     <a href="${forceDownloadUrl(pdf.pdf_url, pdf.filename)}" download="${escapeHtml(pdf.filename || 'newspaper.pdf')}" class="btn btn-secondary btn-xs">${icon('download', 12)} डाउनलोड</a>
                     ${st === 'pending' ? `
                         <button type="button" class="btn btn-success btn-xs" onclick="approveApiPdf(${pdf.id}, this)">${icon('check', 12)} स्वीकृत करें</button>
@@ -2912,6 +2912,36 @@ async function loadPdfsForSelectedTarget() {
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-text">${t('common.error')}</div></div>`;
     }
+}
+
+/**
+ * Opens a generated PDF in a scrollable in-app popup instead of a new
+ * browser tab. The popup's own download button forces a real device
+ * download via forceDownloadUrl (?dl=1 -> Content-Disposition: attachment),
+ * same mechanism the card's regular download link already uses.
+ */
+function previewApiPdf(btn) {
+    const pdfUrl = btn.dataset.pdfUrl;
+    const filename = btn.dataset.pdfFilename || 'newspaper.pdf';
+    closeArticleModal();
+
+    const html = `
+        <div class="modal-overlay" id="articleModal" onclick="closeModalOutside(event)">
+            <div class="modal-content" onclick="event.stopPropagation()" style="max-width:860px; width:100%; height:88vh; padding:0; display:flex; flex-direction:column; overflow:hidden;">
+                <div class="modal-handle"></div>
+                <button class="modal-close" onclick="closeArticleModal()">${icon('x', 14)}</button>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 52px 12px 16px; border-bottom:1px solid var(--border-color); flex-shrink:0;">
+                    <div style="font-weight:600; font-size:0.9rem; word-break:break-all;">${escapeHtml(filename)}</div>
+                    <a href="${forceDownloadUrl(pdfUrl, filename)}" download="${escapeHtml(filename)}" class="btn btn-primary btn-xs" style="flex-shrink:0;">${icon('download', 12)} डाउनलोड</a>
+                </div>
+                <iframe src="${pdfUrl}" style="flex:1; width:100%; border:none;" title="${escapeHtml(filename)}"></iframe>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', html);
+    document.body.style.overflow = 'hidden';
+    applyLanguage();
 }
 
 async function approveApiPdf(id, btn) {
