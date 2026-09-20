@@ -90,7 +90,7 @@ function enableModalPinchZoom() {
     if (_modalViewportRestore === null) {
         _modalViewportRestore = viewportMeta.getAttribute('content');
     }
-    viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, minimum-scale=0.25, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover');
+    viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover');
 }
 
 /**
