@@ -107,10 +107,21 @@ async function api(endpoint, options = {}) {
     if (method === 'GET') {
         apiUrl.searchParams.set('_ts', Date.now().toString());
     }
+
+    // File uploads (e.g. avatar photos run through background removal) can
+    // legitimately take longer on slow mobile connections; everything else
+    // is a plain DB-backed call that should never take this long. Without a
+    // timeout a stalled connection leaves fetch() pending forever, which
+    // looks to the user like an infinite loading spinner with no error.
+    const timeoutMs = options.isFormData ? 90000 : 20000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
     const fetchOptions = {
         ...options,
         headers,
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: controller.signal
     };
 
     delete fetchOptions.isFormData;
@@ -129,8 +140,14 @@ async function api(endpoint, options = {}) {
 
         return data;
     } catch (err) {
+        if (err.name === 'AbortError') {
+            console.error('API timeout:', endpoint);
+            return { error: 'Request timed out. Check your connection and try again.' };
+        }
         console.error('API error:', err);
         return { error: 'Network error' };
+    } finally {
+        clearTimeout(timeoutId);
     }
 }
 
