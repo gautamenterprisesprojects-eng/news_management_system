@@ -177,7 +177,12 @@ router.post('/manual-upload', verifyToken, requireRole('editor', 'admin'), uploa
 router.get('/my-pdfs', verifyToken, (req, res) => {
     try {
         const targetUserId = req.user.id;
-        const pdfs = queryAll('SELECT id, pdf_url, filename, status, created_at FROM api_pdfs WHERE target_user_id = ? ORDER BY created_at DESC', [targetUserId]);
+        const pdfs = queryAll(
+            `SELECT id, pdf_url, filename, status, created_at FROM api_pdfs
+             WHERE target_user_id = ? AND status = 'approved' AND datetime(created_at) >= datetime('now', 'localtime', '-24 hours')
+             ORDER BY created_at DESC`,
+            [targetUserId]
+        );
         res.json({ pdfs });
     } catch (err) {
         console.error('Fetch my-pdfs error:', err);

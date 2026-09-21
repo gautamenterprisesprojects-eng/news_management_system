@@ -2935,7 +2935,7 @@ function previewApiPdf(btn) {
                     <div style="font-weight:600; font-size:0.9rem; word-break:break-all;">${escapeHtml(filename)}</div>
                     <a href="${forceDownloadUrl(pdfUrl, filename)}" download="${escapeHtml(filename)}" class="btn btn-primary btn-xs" style="flex-shrink:0;">${icon('download', 12)} डाउनलोड</a>
                 </div>
-                <iframe src="${pdfUrl}#view=FitH" style="flex:1; width:100%; border:none;" title="${escapeHtml(filename)}"></iframe>
+                <iframe src="${pdfUrl}" style="flex:1; width:100%; border:none;" title="${escapeHtml(filename)}"></iframe>
             </div>
         </div>
     `;

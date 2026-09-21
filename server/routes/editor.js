@@ -651,8 +651,15 @@ router.get('/api-targets/:id/pdfs', (req, res) => {
         `, [targetId]);
         if (!target) return res.status(404).json({ error: 'PDF target not found.' });
 
+        // Rejected PDFs are deleted immediately on reject (see /api-pdfs/:id/reject),
+        // so they never reach this query. Pending stays visible regardless of age --
+        // the editor still needs to act on it -- but approved rolls off after 24h so
+        // this list doesn't keep growing with PDFs already delivered days ago.
         const pdfs = queryAll(
-            'SELECT id, pdf_url, filename, job_id, bundle_id, edition_id, status, created_at FROM api_pdfs WHERE target_user_id = ? ORDER BY created_at DESC',
+            `SELECT id, pdf_url, filename, job_id, bundle_id, edition_id, status, created_at FROM api_pdfs
+             WHERE target_user_id = ?
+               AND (status = 'pending' OR (status = 'approved' AND datetime(created_at) >= datetime('now', 'localtime', '-24 hours')))
+             ORDER BY created_at DESC`,
             [targetId]
         );
 
@@ -686,9 +693,11 @@ router.post('/api-pdfs/:id/approve', (req, res) => {
 
 /**
  * POST /api/editor/api-pdfs/:id/reject
- * Deletes the underlying PDF file (it will never be needed) but keeps the
- * api_pdfs row so the reporter/sub-editor's card can show a rejected message
- * until it ages out through the normal retention cleanup.
+ * Deletes the underlying PDF file and the api_pdfs row immediately -- a
+ * rejected PDF is never needed again, by anyone, so there is nothing to
+ * retain it for. Reporter/sub-editor and editor PDF lists only ever query
+ * for pending/approved, so this also means rejects never need a separate
+ * filter to keep them out of those views.
  */
 router.post('/api-pdfs/:id/reject', (req, res) => {
     try {
@@ -702,10 +711,7 @@ router.post('/api-pdfs/:id/reject', (req, res) => {
             }
         }
 
-        queryRun(
-            `UPDATE api_pdfs SET status = 'rejected', reviewed_by = ?, reviewed_at = datetime('now', 'localtime') WHERE id = ?`,
-            [req.user.id, pdf.id]
-        );
+        queryRun('DELETE FROM api_pdfs WHERE id = ?', [pdf.id]);
         res.json({ success: true });
     } catch (err) {
         console.error('Editor reject PDF error:', err);
