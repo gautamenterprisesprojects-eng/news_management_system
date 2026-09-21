@@ -92,13 +92,13 @@ function renderBottomNav(role, activeTab) {
             items = [
                 { id: 'submit', icon: 'square-pen', label: 'reporter.nav_submit' },
                 { id: 'my-news', icon: 'file-text', label: 'reporter.nav_my_news' },
-                { id: 'approved', icon: 'check-circle-2', label: 'reporter.nav_approved' },
-                { id: 'rejected', icon: 'x-circle', label: 'reporter.nav_rejected' }
+                { id: 'approved', icon: 'check-circle-2', label: 'reporter.nav_approved' }
             ];
             const uReporter = JSON.parse(localStorage.getItem('nms_user') || '{}');
             if (uReporter.is_api_enabled) {
                 items.push({ id: 'pdfs', icon: 'file-text', label: 'PDFs' });
             }
+            items.push({ id: 'rejected', icon: 'x-circle', label: 'reporter.nav_rejected' });
             break;
         case 'editor':
             items = [
@@ -122,6 +122,11 @@ function renderBottomNav(role, activeTab) {
                 const uSubEditor = JSON.parse(localStorage.getItem('nms_user') || '{}');
                 if (uSubEditor.is_api_enabled) {
                     items.push({ id: 'pdfs', icon: 'file-text', label: 'PDF' });
+                    const rejectedItem = items.find(item => item.id === 'rejected');
+                    const pdfItem = items.find(item => item.id === 'pdfs');
+                    items = items.filter(item => item.id !== 'rejected' && item.id !== 'pdfs');
+                    items.splice(4, 0, pdfItem);
+                    items.push(rejectedItem);
                 }
             }
             break;
