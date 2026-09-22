@@ -144,6 +144,77 @@ const CONTENT_RETENTION_HOURS = 48;
 const API_PDF_RETENTION_HOURS = 28;
 const PAGEMINT_BUNDLE_RETENTION_HOURS = 26;
 
+const PAGEMINT_PDF_TIMEOUT_MINUTES = 10;
+
+/**
+ * PageMint acknowledges a bundle the instant it's queued for rendering, well
+ * before the PDF actually exists -- NMS stamps delivery success (and
+ * news.newspaper_sent_at) right then, with nothing watching for whether the
+ * finished PDF ever actually comes back through the webhook. If PageMint's
+ * render then fails or crashes, that failure was only ever visible in
+ * PageMint's own container logs: the bundle just sits there forever looking
+ * "delivered", and the source news items look "sent" even though no PDF was
+ * ever produced for them.
+ *
+ * This closes that gap: any bundle that's been sitting in delivered-but-not-
+ * received for more than PAGEMINT_PDF_TIMEOUT_MINUTES is treated as failed --
+ * marked so, its news items' sent stamp is cleared so the editor can resend
+ * them, and the editor is notified. PageMint's own headless render already
+ * self-aborts well inside this window (NMS_HEADLESS_EXPORT_TIMEOUT_MS,
+ * 3 minutes by default), so nothing is actually still running on its side by
+ * the time this fires -- this is purely about NMS no longer waiting forever
+ * for a delivery that isn't coming.
+ */
+function checkStalePageMintBundles() {
+    try {
+        const { queryAll, queryGet, queryRun } = require('./db/init');
+        const { sendPushToEditors } = require('./services/pushNotifications');
+
+        const staleBundles = queryAll(
+            `SELECT id, job_id, bundle_id, target_user_id, news_ids_json
+             FROM pagemint_bundles
+             WHERE delivery_status = 'delivered'
+               AND pdf_received_at IS NULL
+               AND datetime(delivered_at) < datetime('now', 'localtime', ?)`,
+            [`-${PAGEMINT_PDF_TIMEOUT_MINUTES} minutes`]
+        );
+
+        for (const bundle of staleBundles) {
+            queryRun(
+                `UPDATE pagemint_bundles SET delivery_status = 'failed', error_message = ? WHERE id = ?`,
+                [`PDF not received within ${PAGEMINT_PDF_TIMEOUT_MINUTES} minutes of delivery -- treated as failed.`, bundle.id]
+            );
+
+            try {
+                const newsIds = JSON.parse(bundle.news_ids_json || '[]').filter(Number.isInteger);
+                if (newsIds.length > 0) {
+                    const placeholders = newsIds.map(() => '?').join(',');
+                    queryRun(`UPDATE news SET newspaper_sent_at = NULL WHERE id IN (${placeholders})`, newsIds);
+                }
+            } catch (e) {
+                console.error('Failed to clear newspaper_sent_at for timed-out bundle:', e);
+            }
+
+            const targetUser = queryGet('SELECT name_hi, full_name FROM users WHERE id = ?', [bundle.target_user_id]);
+            const targetName = targetUser?.name_hi || targetUser?.full_name || 'PageMint';
+            sendPushToEditors({
+                title: '⚠️ PDF जनरेशन असफल',
+                body: `${targetName} का बंडल PageMint से ${PAGEMINT_PDF_TIMEOUT_MINUTES} मिनट में वापस नहीं आया और असफल मान लिया गया। कृपया दोबारा भेजें।\nJob: ${bundle.job_id}`,
+                url: '/#/editor',
+                jobId: bundle.job_id,
+                bundleId: bundle.bundle_id,
+                tag: `pagemint-timeout-${bundle.job_id}`
+            }).catch(err => console.error('Editor push notification (bundle timeout) error:', err));
+
+            console.log(`PageMint bundle timed out (no PDF within ${PAGEMINT_PDF_TIMEOUT_MINUTES}min):`, bundle.job_id);
+        }
+    } catch (e) {
+        console.error('Error checking stale PageMint bundles:', e);
+    }
+}
+
+setInterval(checkStalePageMintBundles, 60 * 1000); // every 1 minute
+
 function cleanupOldPageMintBundles() {
     try {
         const { queryAll, queryRun } = require('./db/init');
