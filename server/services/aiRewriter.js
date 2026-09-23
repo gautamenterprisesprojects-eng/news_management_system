@@ -263,8 +263,10 @@ function collectGeminiModels(settingValue = '') {
         ...splitList(process.env.GEMINI_MODELS),
         process.env.GEMINI_MODEL,
         'gemini-3.1-flash-lite',
-        'gemini-2.5-flash-lite',
-        'gemini-2.5-flash'
+        'gemini-flash-lite-latest',
+        'gemini-flash-latest',
+        'gemini-3.5-flash-lite',
+        'gemini-3.5-flash'
     ]);
 }
 
@@ -296,12 +298,17 @@ async function rewriteWithGemini(prompt, apiKeys, models = ['gemini-3.1-flash-li
         const cleanModel = model.replace(/^models\//, '');
         for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
             const apiKey = keys[keyIndex];
+            let timeout = null;
             try {
+                const timeoutMs = Number(process.env.GEMINI_ATTEMPT_TIMEOUT_MS || 15000);
+                const controller = new AbortController();
+                timeout = setTimeout(() => controller.abort(), timeoutMs);
                 const response = await fetch(
                     `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`,
                     {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
+                        signal: controller.signal,
                         body: JSON.stringify({
                             contents: [{ parts: [{ text: prompt }] }],
                             generationConfig: {
@@ -311,6 +318,7 @@ async function rewriteWithGemini(prompt, apiKeys, models = ['gemini-3.1-flash-li
                         })
                     }
                 );
+                if (timeout) clearTimeout(timeout);
 
                 if (!response.ok) {
                     const errData = await response.text();
@@ -331,7 +339,8 @@ async function rewriteWithGemini(prompt, apiKeys, models = ['gemini-3.1-flash-li
 
                 return parseAIResponse(text);
             } catch (err) {
-                errors.push(`${cleanModel}/key${keyIndex + 1}: ${err.message || String(err)}`);
+                if (timeout) clearTimeout(timeout);
+                errors.push(`${cleanModel}/key${keyIndex + 1}: ${err.name === 'AbortError' ? 'request timed out' : (err.message || String(err))}`);
             }
         }
     }
