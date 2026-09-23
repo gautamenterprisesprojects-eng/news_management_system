@@ -259,9 +259,13 @@ function uniqueList(values) {
 }
 
 function collectGeminiModels(settingValue = '') {
-    return uniqueList([
+    const configuredModels = uniqueList([
         ...splitList(settingValue),
-        ...splitList(process.env.GEMINI_MODELS),
+        ...splitList(process.env.GEMINI_MODELS)
+    ]);
+    if (configuredModels.length > 0) return configuredModels;
+
+    return uniqueList([
         process.env.GEMINI_MODEL,
         'gemini-3.1-flash-lite',
         'gemini-flash-lite-latest',
