@@ -60,6 +60,29 @@ function parseRequestedIds(req) {
     return ids.length ? new Set(ids) : null;
 }
 
+function parseExcludedIds(req) {
+    const raw = req.query.exclude_news_ids
+        || req.query.exclude_article_ids
+        || req.query.used_news_ids
+        || req.query.used_article_ids
+        || req.query.exclude_ids;
+    if (!raw) return new Set();
+    const values = Array.isArray(raw) ? raw : String(raw).split(',');
+    return new Set(values.map(value => String(value).trim()).filter(Boolean));
+}
+
+function uniqueRowsByNewsId(rows, excludeIds = new Set()) {
+    const seen = new Set(excludeIds);
+    const unique = [];
+    for (const row of rows) {
+        const key = String(row.news_id || '').trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        unique.push(row);
+    }
+    return unique;
+}
+
 function findBundle(identifier) {
     if (identifier === 'latest') {
         return queryGet(`
@@ -105,14 +128,10 @@ function readFilteredArticleFeed(req, res) {
         }
 
         const category = String(req.query.category || '').trim();
+        const excludedIds = parseExcludedIds(req);
         const offset = parsePositiveInt(req.query.offset, 0);
         const limit = req.query.limit == null ? 20 : parsePositiveInt(req.query.limit, 20, 100);
         const params = [targetUserId, `-${RETENTION_HOURS} hours`];
-        let categoryClause = '';
-        if (category) {
-            categoryClause = 'AND LOWER(category) = LOWER(?)';
-            params.push(category);
-        }
 
         const rows = queryAll(`
             SELECT news_id, category, rewritten_article_json, rewritten_at, created_at
@@ -121,10 +140,16 @@ function readFilteredArticleFeed(req, res) {
               AND rewrite_status IN ('rewritten','skipped')
               AND rewritten_article_json IS NOT NULL
               AND datetime(created_at) >= datetime('now', 'localtime', ?)
-              ${categoryClause}
             ORDER BY datetime(created_at) DESC, id DESC
         `, params);
-        const articles = rows.map(row => JSON.parse(row.rewritten_article_json));
+        const uniqueRows = uniqueRowsByNewsId(rows, excludedIds);
+        const categoryRows = category
+            ? uniqueRows.filter(row => String(row.category || '').trim().toLowerCase() === category.toLowerCase())
+            : uniqueRows;
+        const fallbackRows = category
+            ? uniqueRows.filter(row => String(row.category || '').trim().toLowerCase() !== category.toLowerCase())
+            : [];
+        const articles = [...categoryRows, ...fallbackRows].map(row => JSON.parse(row.rewritten_article_json));
         const selected = articles.slice(offset, offset + limit);
 
         res.json({
@@ -136,6 +161,9 @@ function readFilteredArticleFeed(req, res) {
                 category: category || null,
                 payload_source: 'pagemint_rewritten_articles',
                 total: articles.length,
+                category_matches: categoryRows.length,
+                fallback_matches: fallbackRows.length,
+                excluded_count: excludedIds.size,
                 offset,
                 limit,
                 count: selected.length,

@@ -2095,7 +2095,7 @@ async function loadApiTargets() {
             return;
         }
         const availableTargetIds = new Set(_apiTargets
-            .filter(t => Number(t.recent_raw_news_count || 0) + Number(t.recent_processed_rewritten_count || 0) > 0)
+            .filter(t => Number(t.raw_news_count || 0) + Number(t.processed_rewritten_count || 0) > 0)
             .map(t => Number(t.id)));
         _selectedBulkApiTargets = new Set([..._selectedBulkApiTargets].filter(id => availableTargetIds.has(Number(id))));
         updateBulkApiSelectionToolbar();
@@ -2109,7 +2109,7 @@ async function loadApiTargets() {
             const rawCount = Number(t.raw_news_count || 0);
             const recentCount = Number(t.recent_processed_rewritten_count || 0);
             const recentRawCount = Number(t.recent_raw_news_count || 0);
-            const hasNews = recentRawCount + recentCount > 0;
+            const hasNews = rawCount + count > 0;
             const isSelected = _selectedBulkApiTargets.has(Number(t.id));
             return `
             <div class="card" style="display:flex; align-items:center; gap:16px; cursor:pointer; padding: 12px 16px; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='var(--card-bg)'" onclick="selectApiTarget(${t.id}, '${escapeHtml(t.full_name)}')">
@@ -2127,14 +2127,14 @@ async function loadApiTargets() {
                         AI rewritten: <strong style="color:${count > 0 ? 'var(--accent-green)' : 'inherit'}">${count}</strong>
                     </div>
                     <div style="font-size:0.78rem; color:${hasNews ? 'var(--accent-green)' : 'var(--text-secondary)'}; margin-top:3px;">
-                        23h bundle: RAW ${recentRawCount} + AI ${recentCount}
+                        Available bundle: RAW ${rawCount} + AI ${count}
                     </div>
                 </div>
                 <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
                     <button type="button" class="btn btn-primary btn-xs" style="white-space:nowrap; background:var(--accent-green,#16a34a); border-color:var(--accent-green,#16a34a);"
                         onclick="event.stopPropagation(); generateApiPdfForTarget(${t.id}, '${escapeHtml(t.full_name)}', this)"
                         ${hasNews ? '' : 'disabled'}
-                        title="पिछले 23 घंटे की सभी RAW + AI rewritten खबरें एक PDF में PageMint भेजें">
+                        title="सभी उपलब्ध RAW + AI rewritten खबरें एक PDF में PageMint भेजें">
                         ${icon('send', 12)} PDF जनरेट करें
                     </button>
                     ${icon('chevron-right', 18)}
@@ -2156,7 +2156,7 @@ function formatBulkElapsed(seconds) {
 
 function getBulkApiSelectableTargetIds() {
     return _apiTargets
-        .filter(t => Number(t.recent_raw_news_count || 0) + Number(t.recent_processed_rewritten_count || 0) > 0)
+        .filter(t => Number(t.raw_news_count || 0) + Number(t.processed_rewritten_count || 0) > 0)
         .map(t => Number(t.id));
 }
 
@@ -2283,8 +2283,8 @@ async function startBulkApiPdfQueue(targetIds = null) {
         .map(id => _apiTargets.find(t => Number(t.id) === Number(id))?.full_name)
         .filter(Boolean);
     const confirmText = targetNames.length === 1
-        ? `${targetNames[0]} के पिछले 23 घंटे की RAW + AI rewritten खबरों का एक PDF बनाना शुरू करें?`
-        : `${ids.length} यूज़र के पिछले 23 घंटे की RAW + AI rewritten खबरों के PDF एक-एक करके बनाने शुरू करें?`;
+        ? `${targetNames[0]} की सभी उपलब्ध RAW + AI rewritten खबरों का एक PDF बनाना शुरू करें?`
+        : `${ids.length} यूज़र की सभी उपलब्ध RAW + AI rewritten खबरों के PDF एक-एक करके बनाने शुरू करें?`;
     if (!confirm(confirmText)) return;
 
     const btn = document.getElementById('bulkApiGenerateBtn');

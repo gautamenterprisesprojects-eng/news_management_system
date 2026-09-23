@@ -332,6 +332,14 @@ function buildPageMintArticle({ article, imagesByNewsId, baseUrl, bundleIndex, i
 
 function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl, leadNewsId = null }) {
     const sentAt = new Date().toISOString();
+    const seenArticleIds = new Set();
+    const uniqueArticles = [];
+    for (const article of Array.isArray(articles) ? articles : []) {
+        const key = String(article?.id ?? article?.newsId ?? '').trim();
+        if (key && seenArticleIds.has(key)) continue;
+        if (key) seenArticleIds.add(key);
+        uniqueArticles.push(article);
+    }
 
     // Unique identifiers so Page Maker can track and return the PDF
     // against the correct job, bundle, and edition.
@@ -423,8 +431,8 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl, 
             authHeader: process.env.NEWSPAPER_GENERATOR_WEBHOOK_KEY ? 'x-webhook-key' : null
         },
 
-        count: articles.length,
-        articles: articles.map((article, index) => buildPageMintArticle({
+        count: uniqueArticles.length,
+        articles: uniqueArticles.map((article, index) => buildPageMintArticle({
             article,
             imagesByNewsId,
             baseUrl,
@@ -436,10 +444,10 @@ function buildNewspaperPayload({ targetUser, articles, imagesByNewsId, baseUrl, 
             layout: CLIFF_FRONT_RAIL_LAYOUT,
             editorial_authors,
             leadNewsId: leadNewsId ?? null,
-            count: articles.length,
-            articleIds: articles.map(article => article.id),
-            mixedCategories: new Set(articles.map(article => safeString(article.category))).size > 1,
-            mixedLanguages: new Set(articles.map(article => detectLanguage(`${article.headline_rewritten || article.headline || ''}\n${article.body_rewritten || article.body || ''}`))).size > 1,
+            count: uniqueArticles.length,
+            articleIds: uniqueArticles.map(article => article.id),
+            mixedCategories: new Set(uniqueArticles.map(article => safeString(article.category))).size > 1,
+            mixedLanguages: new Set(uniqueArticles.map(article => detectLanguage(`${article.headline_rewritten || article.headline || ''}\n${article.body_rewritten || article.body || ''}`))).size > 1,
             ...(pageMintRecipe ? { pageMintRecipe } : {})
         }
     };

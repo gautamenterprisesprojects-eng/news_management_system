@@ -460,7 +460,6 @@ function fetchRecentRawRowsForTarget(targetUser) {
         FROM news n
         LEFT JOIN users u ON u.id = n.reporter_id
         WHERE n.status = 'raw'
-          AND ${recentNewsSql('n.created_at')}
           AND TRIM(COALESCE(n.headline, '')) != ''
           AND TRIM(COALESCE(n.body, '')) != ''
     `;
@@ -485,7 +484,6 @@ function fetchRecentAiRowsForTarget(targetUser) {
         FROM news n
         LEFT JOIN users u ON u.id = n.reporter_id
         WHERE n.status = 'processed'
-          AND ${recentNewsSql('COALESCE(n.processed_at, n.created_at)')}
           AND n.headline_rewritten IS NOT NULL
           AND TRIM(n.headline_rewritten) != ''
           AND n.body_rewritten IS NOT NULL
@@ -521,7 +519,7 @@ async function startRecentMixedPageMintBundle({ targetUser, editorUserId, baseUr
             skipped: true,
             raw_count: 0,
             ai_count: 0,
-            message: `No RAW or AI rewritten news found in the last ${BULK_PDF_WINDOW_HOURS} hours.`
+            message: 'No RAW or AI rewritten news found for this target.'
         };
     }
 
@@ -579,7 +577,7 @@ async function startRecentMixedPageMintBundle({ targetUser, editorUserId, baseUr
     payload.meta = {
         ...(payload.meta || {}),
         source: 'NMS_BULK_RECENT_MIXED',
-        window_hours: BULK_PDF_WINDOW_HOURS,
+        selection: 'all_available',
         raw_count: rawRows.length,
         ai_count: aiRows.length
     };
@@ -625,7 +623,7 @@ function summarizeBulkQueue(queue) {
         current_index: queue.currentIndex,
         percent: queue.items.length ? Math.round((completedItems / queue.items.length) * 100) : 0,
         elapsed_seconds: Math.max(0, Math.floor((now - queue.startedAtMs) / 1000)),
-        window_hours: BULK_PDF_WINDOW_HOURS,
+        selection: 'all_available',
         items: queue.items,
         error: queue.error || null
     };

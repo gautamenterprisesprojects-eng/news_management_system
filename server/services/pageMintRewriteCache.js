@@ -85,11 +85,12 @@ function markArticleRewritten({ targetUser, article, payload, rewrittenArticle, 
     queryRun(`
         UPDATE pagemint_rewritten_articles
         SET rewritten_article_json = ?,
+            category = COALESCE(?, category),
             rewrite_status = ?,
             rewritten_at = datetime('now', 'localtime'),
             error_message = NULL
         WHERE target_user_id = ? AND news_id = ?
-    `, [jsonText(rewrittenArticle), status, targetUser.id, newsId]);
+    `, [jsonText(rewrittenArticle), rewrittenArticle.category || null, status, targetUser.id, newsId]);
 }
 
 function markArticleFailed({ targetUser, article, err }) {
@@ -133,9 +134,12 @@ async function rewriteAndCachePageMintBundle({ targetUser, payload }) {
     const sourceArticles = Array.isArray(payload.articles) ? payload.articles : [];
     const articles = [];
     let cachedCount = 0;
+    const seenNewsIds = new Set();
 
     for (const article of sourceArticles) {
         const newsId = articleNewsId(article);
+        if (newsId && seenNewsIds.has(newsId)) continue;
+        if (newsId) seenNewsIds.add(newsId);
         const cached = newsId ? getFreshCachedArticle(targetUser.id, newsId) : null;
         if (cached) {
             cachedCount += 1;
