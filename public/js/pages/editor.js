@@ -2124,10 +2124,10 @@ async function loadApiTargets() {
                     <div style="font-size:0.85rem; color:var(--text-secondary); margin-top:4px;">
                         RAW: <strong style="color:${rawCount > 0 ? 'var(--accent-orange)' : 'inherit'}">${rawCount}</strong>
                         <span style="margin: 0 6px;">•</span>
-                        AI rewritten: <strong style="color:${count > 0 ? 'var(--accent-green)' : 'inherit'}">${count}</strong>
+                        Processed: <strong style="color:${count > 0 ? 'var(--accent-green)' : 'inherit'}">${count}</strong>
                     </div>
                     <div style="font-size:0.78rem; color:${hasNews ? 'var(--accent-green)' : 'var(--text-secondary)'}; margin-top:3px;">
-                        Available bundle: RAW ${rawCount} + AI ${count}
+                        Available bundle: RAW ${rawCount} + Processed ${count}
                     </div>
                 </div>
                 <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">

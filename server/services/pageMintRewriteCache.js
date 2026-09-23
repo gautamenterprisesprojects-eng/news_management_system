@@ -199,11 +199,7 @@ function getPageMintArticleSource(newsId) {
         FROM news n
         LEFT JOIN users u ON u.id = n.reporter_id
         WHERE n.id = ?
-          AND n.status = 'processed'
-          AND n.headline_rewritten IS NOT NULL
-          AND TRIM(n.headline_rewritten) != ''
-          AND n.body_rewritten IS NOT NULL
-          AND TRIM(n.body_rewritten) != ''
+          AND n.status IN ('processed', 'forwarded')
     `, [newsId]);
 }
 

@@ -350,12 +350,8 @@ function countApiTargetRecentRawNews(target) {
 
 function countApiTargetRecentAiNews(target) {
     const baseWhere = `
-          AND n.status = 'processed'
+          AND n.status IN ('processed', 'forwarded')
           AND ${recentNewsSql('COALESCE(n.processed_at, n.created_at)')}
-          AND n.headline_rewritten IS NOT NULL
-          AND TRIM(n.headline_rewritten) != ''
-          AND n.body_rewritten IS NOT NULL
-          AND TRIM(n.body_rewritten) != ''
     `;
     if (target.role === 'sub_editor') {
         return queryGet(`
@@ -462,6 +458,7 @@ function fetchRecentRawRowsForTarget(targetUser) {
         WHERE n.status = 'raw'
           AND TRIM(COALESCE(n.headline, '')) != ''
           AND TRIM(COALESCE(n.body, '')) != ''
+          AND ${recentNewsSql('n.created_at')}
     `;
     if (targetUser.role === 'sub_editor') {
         return queryAll(`
@@ -483,11 +480,8 @@ function fetchRecentAiRowsForTarget(targetUser) {
         SELECT n.*, ${PAGE_MINT_ARTICLE_REPORTER_SQL}
         FROM news n
         LEFT JOIN users u ON u.id = n.reporter_id
-        WHERE n.status = 'processed'
-          AND n.headline_rewritten IS NOT NULL
-          AND TRIM(n.headline_rewritten) != ''
-          AND n.body_rewritten IS NOT NULL
-          AND TRIM(n.body_rewritten) != ''
+        WHERE n.status IN ('processed', 'forwarded')
+          AND ${recentNewsSql('COALESCE(n.processed_at, n.created_at)')}
     `;
     if (targetUser.role === 'sub_editor') {
         return queryAll(`
@@ -728,6 +722,7 @@ router.get('/news/raw', (req, res) => {
             JOIN users u ON n.reporter_id = u.id
             LEFT JOIN users se ON se.id = n.sub_editor_id
             WHERE n.status IN ('raw', 'processed')
+              AND datetime(COALESCE(n.processed_at, n.created_at)) >= datetime('now', 'localtime', '-24 hours')
               ${visibleClause}
             ORDER BY n.created_at DESC
         `, params);
@@ -757,6 +752,7 @@ router.get('/news/processed', (req, res) => {
             LEFT JOIN users se ON se.id = n.sub_editor_id
             WHERE n.status = 'processed'
               AND n.editor_processed_hidden_at IS NULL
+              AND datetime(COALESCE(n.processed_at, n.created_at)) >= datetime('now', 'localtime', '-24 hours')
               ${visibleClause}
             ORDER BY n.processed_at DESC
         `, params);
@@ -867,11 +863,7 @@ router.get('/api-targets', (req, res) => {
                 SELECT COUNT(*) as c
                 FROM news n
                 WHERE ${where}
-                  AND n.status = 'processed'
-                  AND n.headline_rewritten IS NOT NULL
-                  AND TRIM(n.headline_rewritten) != ''
-                  AND n.body_rewritten IS NOT NULL
-                  AND TRIM(n.body_rewritten) != ''
+                  AND n.status IN ('processed', 'forwarded')
             `, params)?.c || 0;
             const rawCount = countApiTargetRawNews(target);
             const recentRawCount = countApiTargetRecentRawNews(target);
@@ -914,11 +906,7 @@ router.get('/api-targets/:id/news', (req, res) => {
                 JOIN users u ON u.id = n.reporter_id
                 WHERE n.sub_editor_id = ?
                   AND n.sub_editor_status = 'forwarded'
-                  AND n.status = 'processed'
-                  AND n.headline_rewritten IS NOT NULL
-                  AND TRIM(n.headline_rewritten) != ''
-                  AND n.body_rewritten IS NOT NULL
-                  AND TRIM(n.body_rewritten) != ''
+                  AND n.status IN ('processed', 'forwarded')
                 ${orderBy}
             `;
             params = [targetId];
@@ -928,11 +916,7 @@ router.get('/api-targets/:id/news', (req, res) => {
                 FROM news n
                 JOIN users u ON u.id = n.reporter_id
                 WHERE n.reporter_id = ?
-                  AND n.status = 'processed'
-                  AND n.headline_rewritten IS NOT NULL
-                  AND TRIM(n.headline_rewritten) != ''
-                  AND n.body_rewritten IS NOT NULL
-                  AND TRIM(n.body_rewritten) != ''
+                  AND n.status IN ('processed', 'forwarded')
                 ${orderBy}
             `;
             params = [targetId];
@@ -1267,11 +1251,7 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
                 WHERE n.id IN (${placeholders})
                   AND n.sub_editor_id = ?
                   AND n.sub_editor_status = 'forwarded'
-                  AND n.status = 'processed'
-                  AND n.headline_rewritten IS NOT NULL
-                  AND TRIM(n.headline_rewritten) != ''
-                  AND n.body_rewritten IS NOT NULL
-                  AND TRIM(n.body_rewritten) != ''
+                  AND n.status IN ('processed', 'forwarded')
             `, [...newsIds, targetUserId]);
         } else {
             articles = queryAll(`
@@ -1284,11 +1264,7 @@ router.post('/newspaper-generator/bundle', async (req, res) => {
               LEFT JOIN users u ON u.id = n.reporter_id
                 WHERE n.id IN (${placeholders})
                   AND n.reporter_id = ?
-                  AND n.status = 'processed'
-                  AND n.headline_rewritten IS NOT NULL
-                  AND TRIM(n.headline_rewritten) != ''
-                  AND n.body_rewritten IS NOT NULL
-                  AND TRIM(n.body_rewritten) != ''
+                  AND n.status IN ('processed', 'forwarded')
             `, [...newsIds, targetUserId]);
         }
 
