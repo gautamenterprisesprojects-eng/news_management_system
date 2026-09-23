@@ -218,7 +218,17 @@ async function rewriteArticle(headline, body, options = {}) {
     if (activeProvider === 'gemini') {
         const apiKeys = collectGeminiApiKeys(getSettingValue('gemini_api_key'));
         const models = collectGeminiModels(getSettingValue('gemini_model'));
-        return await rewriteWithGemini(fullPrompt, apiKeys, models);
+        try {
+            return await rewriteWithGemini(fullPrompt, apiKeys, models);
+        } catch (geminiError) {
+            const deepSeekKey = getSettingValue('deepseek_api_key') || process.env.DEEPSEEK_API_KEY;
+            if (!deepSeekKey) throw geminiError;
+            try {
+                return await rewriteWithDeepSeek(fullPrompt, deepSeekKey);
+            } catch (deepSeekError) {
+                throw new Error(`Gemini failed (${geminiError.message}); DeepSeek fallback also failed (${deepSeekError.message})`);
+            }
+        }
     } else if (activeProvider === 'deepseek') {
         const apiKey = getSettingValue('deepseek_api_key') || process.env.DEEPSEEK_API_KEY;
         return await rewriteWithDeepSeek(fullPrompt, apiKey);
