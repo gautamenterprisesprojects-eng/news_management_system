@@ -296,8 +296,7 @@ function buildGeminiAttempts(primaryKeyValue = '', primaryModelValue = '') {
     ]).filter(key => key !== primaryKey);
     const fallbackModelCandidates = collectGeminiModels('');
     const fallbackModels = uniqueList([
-        ...fallbackModelCandidates.filter(model => model !== primaryModel),
-        primaryModel
+        ...fallbackModelCandidates.filter(model => model !== primaryModel)
     ]);
 
     const attempts = [];
