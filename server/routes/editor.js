@@ -1732,27 +1732,17 @@ router.post('/news/:id/rewrite', async (req, res) => {
             language = 'hi'
         } = req.body;
 
-        // Update status to processing
-        queryRun('UPDATE news SET status = ? WHERE id = ?', ['processing', news.id]);
-
-        try {
-            const result = await rewriteAndSaveNews(news, {
-                provider,
-                targetWords,
-                numSubheadings,
-                captionWords,
-                includeImageCaption,
-                language,
-                editorUserId: req.user.id,
-                baseUrl: getBaseUrl(req)
-            });
-            res.json({ id: news.id, ...result });
-        } catch (aiError) {
-            // Revert only the in-flight rewrite. If a parallel retry already
-            // succeeded and moved the item to processed, do not undo it.
-            queryRun('UPDATE news SET status = ? WHERE id = ? AND status = ?', ['raw', news.id, 'processing']);
-            throw aiError;
-        }
+        const result = await rewriteAndSaveNews(news, {
+            provider,
+            targetWords,
+            numSubheadings,
+            captionWords,
+            includeImageCaption,
+            language,
+            editorUserId: req.user.id,
+            baseUrl: getBaseUrl(req)
+        });
+        res.json({ id: news.id, ...result });
     } catch (err) {
         console.error('Editor rewrite error:', err);
         res.status(500).json({ error: `AI rewrite failed: ${err.message}`, retryAllowed: true });
