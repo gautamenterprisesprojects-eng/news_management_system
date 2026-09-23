@@ -224,16 +224,18 @@ async function rewriteArticle(headline, body, options = {}) {
             return await rewriteWithGemini(fullPrompt, attempts);
         } catch (geminiError) {
             const deepSeekKey = getSettingValue('deepseek_api_key') || process.env.DEEPSEEK_API_KEY;
+            const deepSeekModel = getSettingValue('deepseek_model') || process.env.DEEPSEEK_MODEL || 'deepseek-flash';
             if (!deepSeekKey) throw geminiError;
             try {
-                return await rewriteWithDeepSeek(fullPrompt, deepSeekKey);
+                return await rewriteWithDeepSeek(fullPrompt, deepSeekKey, deepSeekModel);
             } catch (deepSeekError) {
                 throw new Error(`Gemini failed (${geminiError.message}); DeepSeek fallback also failed (${deepSeekError.message})`);
             }
         }
     } else if (activeProvider === 'deepseek') {
         const apiKey = getSettingValue('deepseek_api_key') || process.env.DEEPSEEK_API_KEY;
-        return await rewriteWithDeepSeek(fullPrompt, apiKey);
+        const model = getSettingValue('deepseek_model') || process.env.DEEPSEEK_MODEL || 'deepseek-flash';
+        return await rewriteWithDeepSeek(fullPrompt, apiKey, model);
     } else {
         throw new Error(`Unknown AI provider: ${activeProvider}`);
     }
@@ -413,7 +415,7 @@ async function rewriteWithGemini(prompt, attempts) {
 /**
  * Rewrite using DeepSeek API
  */
-async function rewriteWithDeepSeek(prompt, apiKey) {
+async function rewriteWithDeepSeek(prompt, apiKey, model = 'deepseek-flash') {
     if (!apiKey) {
         throw new Error('DeepSeek API key not configured. Go to Admin → Settings to add it.');
     }
@@ -425,7 +427,7 @@ async function rewriteWithDeepSeek(prompt, apiKey) {
             'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-            model: 'deepseek-chat',
+            model,
             messages: [
                 { role: 'system', content: 'You are the senior newsroom editor of The Cliff News.' },
                 { role: 'user', content: prompt }

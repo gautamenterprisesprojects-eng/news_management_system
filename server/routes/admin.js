@@ -431,7 +431,7 @@ router.get('/settings', (req, res) => {
  */
 router.put('/settings', (req, res) => {
     try {
-        const allowedKeys = ['ai_provider', 'gemini_api_key', 'gemini_model', 'deepseek_api_key', 'ai_rewrite_prompt'];
+        const allowedKeys = ['ai_provider', 'gemini_api_key', 'gemini_model', 'deepseek_api_key', 'deepseek_model', 'ai_rewrite_prompt'];
         const updates = req.body;
 
         for (const [key, value] of Object.entries(updates)) {
