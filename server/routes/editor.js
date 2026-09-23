@@ -1712,9 +1712,12 @@ async function rewriteAndSaveNews(news, {
  */
 router.post('/news/:id/rewrite', async (req, res) => {
     try {
-        const news = queryGet('SELECT * FROM news WHERE id = ? AND status = ?', [req.params.id, 'raw']);
+        const news = queryGet('SELECT * FROM news WHERE id = ?', [req.params.id]);
         if (!news) {
-            return res.status(404).json({ error: 'News not found or not in raw status.' });
+            return res.status(404).json({ error: 'News not found.' });
+        }
+        if (!['raw', 'processing'].includes(news.status)) {
+            return res.status(409).json({ error: 'News is already rewritten or no longer available for AI rewrite.' });
         }
         if (!isVisibleToMainEditor(news)) {
             return res.status(403).json({ error: 'This news is still pending with the sub-editor.' });
@@ -1745,8 +1748,9 @@ router.post('/news/:id/rewrite', async (req, res) => {
             });
             res.json({ id: news.id, ...result });
         } catch (aiError) {
-            // Revert status on AI failure
-            queryRun('UPDATE news SET status = ? WHERE id = ?', ['raw', news.id]);
+            // Revert only the in-flight rewrite. If a parallel retry already
+            // succeeded and moved the item to processed, do not undo it.
+            queryRun('UPDATE news SET status = ? WHERE id = ? AND status = ?', ['raw', news.id, 'processing']);
             throw aiError;
         }
     } catch (err) {
