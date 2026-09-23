@@ -113,7 +113,7 @@ async function api(endpoint, options = {}) {
     // is a plain DB-backed call that should never take this long. Without a
     // timeout a stalled connection leaves fetch() pending forever, which
     // looks to the user like an infinite loading spinner with no error.
-    const timeoutMs = options.isFormData || endpoint.includes('/rewrite') ? 90000 : 20000;
+    const timeoutMs = options.isFormData ? 90000 : (endpoint.includes('/rewrite') ? 150000 : 20000);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 

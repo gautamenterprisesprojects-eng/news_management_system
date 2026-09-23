@@ -327,6 +327,10 @@ function summarizeGeminiError(errorText) {
     }
 }
 
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 /**
  * Rewrite using Google Gemini API
  */
@@ -337,56 +341,69 @@ async function rewriteWithGemini(prompt, attempts) {
     }
 
     const errors = [];
-    for (let attemptIndex = 0; attemptIndex < attemptList.length; attemptIndex += 1) {
-        const { apiKey, model } = attemptList[attemptIndex];
-        const cleanModel = model.replace(/^models\//, '');
-        let timeout = null;
-        try {
-            const timeoutMs = Number(process.env.GEMINI_ATTEMPT_TIMEOUT_MS || 15000);
-            const controller = new AbortController();
-            timeout = setTimeout(() => controller.abort(), timeoutMs);
-            const response = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    signal: controller.signal,
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }],
-                        generationConfig: {
-                            temperature: 0.7,
-                            maxOutputTokens: 4096,
-                        }
-                    })
-                }
-            );
-            if (timeout) clearTimeout(timeout);
+    const maxRounds = Math.max(1, Math.min(3, Number(process.env.GEMINI_RETRY_ROUNDS || 2)));
+    const retryDelayMs = Math.max(0, Number(process.env.GEMINI_RETRY_DELAY_MS || 1500));
+    let sawTemporaryFailure = false;
 
-            if (!response.ok) {
-                const errData = await response.text();
-                const reason = summarizeGeminiError(errData);
-                errors.push(`${cleanModel}/attempt${attemptIndex + 1}: ${response.status} ${reason}`);
-                if (isRetryableGeminiStatus(response.status) || attemptList.length > 1) {
+    for (let round = 1; round <= maxRounds; round += 1) {
+        sawTemporaryFailure = false;
+        for (let attemptIndex = 0; attemptIndex < attemptList.length; attemptIndex += 1) {
+            const { apiKey, model } = attemptList[attemptIndex];
+            const cleanModel = model.replace(/^models\//, '');
+            let timeout = null;
+            try {
+                const timeoutMs = Number(process.env.GEMINI_ATTEMPT_TIMEOUT_MS || 15000);
+                const controller = new AbortController();
+                timeout = setTimeout(() => controller.abort(), timeoutMs);
+                const response = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        signal: controller.signal,
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }],
+                            generationConfig: {
+                                temperature: 0.7,
+                                maxOutputTokens: 4096,
+                            }
+                        })
+                    }
+                );
+                if (timeout) clearTimeout(timeout);
+
+                if (!response.ok) {
+                    const errData = await response.text();
+                    const reason = summarizeGeminiError(errData);
+                    const retryable = isRetryableGeminiStatus(response.status);
+                    sawTemporaryFailure = sawTemporaryFailure || retryable;
+                    errors.push(`${cleanModel}/round${round}-attempt${attemptIndex + 1}: ${response.status} ${reason}`);
+                    if (retryable || attemptList.length > 1) {
+                        continue;
+                    }
+                    throw new Error(`Gemini API error (${response.status}): ${reason}`);
+                }
+
+                const data = await response.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) {
+                    errors.push(`${cleanModel}/round${round}-attempt${attemptIndex + 1}: empty response`);
                     continue;
                 }
-                throw new Error(`Gemini API error (${response.status}): ${reason}`);
-            }
 
-            const data = await response.json();
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) {
-                errors.push(`${cleanModel}/attempt${attemptIndex + 1}: empty response`);
-                continue;
+                return parseAIResponse(text);
+            } catch (err) {
+                if (timeout) clearTimeout(timeout);
+                const isTimeout = err.name === 'AbortError';
+                sawTemporaryFailure = sawTemporaryFailure || isTimeout;
+                errors.push(`${cleanModel}/round${round}-attempt${attemptIndex + 1}: ${isTimeout ? 'request timed out' : (err.message || String(err))}`);
             }
-
-            return parseAIResponse(text);
-        } catch (err) {
-            if (timeout) clearTimeout(timeout);
-            errors.push(`${cleanModel}/attempt${attemptIndex + 1}: ${err.name === 'AbortError' ? 'request timed out' : (err.message || String(err))}`);
         }
+        if (!sawTemporaryFailure || round === maxRounds) break;
+        await delay(retryDelayMs);
     }
 
-    throw new Error(`Gemini API failed after trying ${attemptList.length} temporary attempt(s): ${errors.slice(-4).join(' | ')}`);
+    throw new Error(`Gemini is overloaded or not responding after ${attemptList.length} temporary attempt(s) across ${maxRounds} round(s). Please retry after a short wait. Last details: ${errors.slice(-4).join(' | ')}`);
 }
 
 /**
