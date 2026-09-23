@@ -324,6 +324,56 @@ function countApiTargetRawNews(target) {
     `, [target.id])?.c || 0;
 }
 
+function countApiTargetRecentRawNews(target) {
+    if (target.role === 'sub_editor') {
+        return queryGet(`
+            SELECT COUNT(*) as c
+            FROM news n
+            WHERE n.sub_editor_id = ?
+              AND n.status = 'raw'
+              AND ${recentNewsSql('n.created_at')}
+              AND TRIM(COALESCE(n.headline, '')) != ''
+              AND TRIM(COALESCE(n.body, '')) != ''
+        `, [target.id])?.c || 0;
+    }
+    return queryGet(`
+        SELECT COUNT(*) as c
+        FROM news n
+        WHERE n.reporter_id = ?
+          AND n.status = 'raw'
+          AND ${recentNewsSql('n.created_at')}
+          AND TRIM(COALESCE(n.headline, '')) != ''
+          AND TRIM(COALESCE(n.body, '')) != ''
+          AND NOT (n.sub_editor_id IS NOT NULL AND n.sub_editor_status = 'forwarded')
+    `, [target.id])?.c || 0;
+}
+
+function countApiTargetRecentAiNews(target) {
+    const baseWhere = `
+          AND n.status = 'processed'
+          AND ${recentNewsSql('COALESCE(n.processed_at, n.created_at)')}
+          AND n.headline_rewritten IS NOT NULL
+          AND TRIM(n.headline_rewritten) != ''
+          AND n.body_rewritten IS NOT NULL
+          AND TRIM(n.body_rewritten) != ''
+    `;
+    if (target.role === 'sub_editor') {
+        return queryGet(`
+            SELECT COUNT(*) as c
+            FROM news n
+            WHERE n.sub_editor_id = ?
+              AND n.sub_editor_status = 'forwarded'
+              ${baseWhere}
+        `, [target.id])?.c || 0;
+    }
+    return queryGet(`
+        SELECT COUNT(*) as c
+        FROM news n
+        WHERE n.reporter_id = ?
+          ${baseWhere}
+    `, [target.id])?.c || 0;
+}
+
 /**
  * Push notification to all active editors -- same channel/shape as a new
  * reporter submission ("नई खबर आई") -- confirming a bundle actually reached
@@ -378,6 +428,259 @@ function runPageMintBundleJob({ targetUser, payload, newsIds, placeholders }) {
             console.error('Newspaper generator background bundle error:', err);
         }
     });
+}
+
+const BULK_PDF_WINDOW_HOURS = 23;
+const BULK_PDF_WAIT_TIMEOUT_MS = 60 * 60 * 1000;
+const BULK_PDF_POLL_MS = 10000;
+const bulkPdfQueues = new Map();
+let activeBulkPdfQueueId = null;
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function recentNewsSql(column) {
+    return `datetime(${column}) >= datetime('now', 'localtime', '-${BULK_PDF_WINDOW_HOURS} hours')`;
+}
+
+function getApiTargetOrThrow(targetId) {
+    const targetUser = queryGet(`${PAGE_MINT_TARGET_USER_SQL}`, [targetId]);
+    if (!isValidPageMintApiTargetUser(targetUser)) {
+        const err = new Error('Invalid PageMint API target user.');
+        err.statusCode = 400;
+        throw err;
+    }
+    return targetUser;
+}
+
+function fetchRecentRawRowsForTarget(targetUser) {
+    const baseSelect = `
+        SELECT n.*, ${PAGE_MINT_ARTICLE_REPORTER_SQL}
+        FROM news n
+        LEFT JOIN users u ON u.id = n.reporter_id
+        WHERE n.status = 'raw'
+          AND ${recentNewsSql('n.created_at')}
+          AND TRIM(COALESCE(n.headline, '')) != ''
+          AND TRIM(COALESCE(n.body, '')) != ''
+    `;
+    if (targetUser.role === 'sub_editor') {
+        return queryAll(`
+            ${baseSelect}
+              AND n.sub_editor_id = ?
+            ORDER BY datetime(n.created_at) DESC, n.id DESC
+        `, [targetUser.id]);
+    }
+    return queryAll(`
+        ${baseSelect}
+          AND n.reporter_id = ?
+          AND NOT (n.sub_editor_id IS NOT NULL AND n.sub_editor_status = 'forwarded')
+        ORDER BY datetime(n.created_at) DESC, n.id DESC
+    `, [targetUser.id]);
+}
+
+function fetchRecentAiRowsForTarget(targetUser) {
+    const baseSelect = `
+        SELECT n.*, ${PAGE_MINT_ARTICLE_REPORTER_SQL}
+        FROM news n
+        LEFT JOIN users u ON u.id = n.reporter_id
+        WHERE n.status = 'processed'
+          AND ${recentNewsSql('COALESCE(n.processed_at, n.created_at)')}
+          AND n.headline_rewritten IS NOT NULL
+          AND TRIM(n.headline_rewritten) != ''
+          AND n.body_rewritten IS NOT NULL
+          AND TRIM(n.body_rewritten) != ''
+    `;
+    if (targetUser.role === 'sub_editor') {
+        return queryAll(`
+            ${baseSelect}
+              AND n.sub_editor_id = ?
+              AND n.sub_editor_status = 'forwarded'
+            ORDER BY datetime(COALESCE(n.processed_at, n.created_at)) DESC, n.id DESC
+        `, [targetUser.id]);
+    }
+    return queryAll(`
+        ${baseSelect}
+          AND n.reporter_id = ?
+        ORDER BY datetime(COALESCE(n.processed_at, n.created_at)) DESC, n.id DESC
+    `, [targetUser.id]);
+}
+
+function getArticleSortTime(article) {
+    const raw = article.processed_at || article.created_at || '';
+    const parsed = Date.parse(String(raw).replace(' ', 'T'));
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+async function startRecentMixedPageMintBundle({ targetUser, editorUserId, baseUrl }) {
+    const rawRows = fetchRecentRawRowsForTarget(targetUser);
+    const aiRows = fetchRecentAiRowsForTarget(targetUser);
+
+    if (rawRows.length === 0 && aiRows.length === 0) {
+        return {
+            skipped: true,
+            raw_count: 0,
+            ai_count: 0,
+            message: `No RAW or AI rewritten news found in the last ${BULK_PDF_WINDOW_HOURS} hours.`
+        };
+    }
+
+    for (const article of rawRows) {
+        if (article.body_rewritten && article.body_rewritten.trim()) continue;
+        try {
+            const rewritten = await rewriteAndSaveNews(article, {
+                editorUserId,
+                baseUrl
+            });
+            article.headline_rewritten = rewritten.headline_rewritten;
+            article.body_rewritten = rewritten.body_rewritten;
+            article.ai_provider = rewritten.ai_provider;
+            article.status = 'processed';
+            article.processed_at = article.processed_at || queryGet('SELECT datetime(\'now\', \'localtime\') as ts')?.ts || article.created_at;
+        } catch (rewriteError) {
+            console.error(`Bulk auto-rewrite failed for news ${article.id}, sending original raw content:`, rewriteError.message);
+        }
+    }
+
+    let articles = [...rawRows, ...aiRows].sort((a, b) => {
+        const timeDiff = getArticleSortTime(b) - getArticleSortTime(a);
+        if (timeDiff !== 0) return timeDiff;
+        return Number(b.id) - Number(a.id);
+    });
+    const seen = new Set();
+    articles = articles.filter(article => {
+        const key = String(article.id);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
+    const newsIds = articles.map(article => article.id);
+    const placeholders = newsIds.map(() => '?').join(',');
+    const imageRows = queryAll(`
+        SELECT news_id, id, image_path, is_selected, sort_order
+        FROM news_images
+        WHERE news_id IN (${placeholders})
+        ORDER BY news_id ASC, sort_order ASC, id ASC
+    `, newsIds);
+    const imagesByNewsId = new Map();
+    for (const image of imageRows) {
+        if (!imagesByNewsId.has(image.news_id)) imagesByNewsId.set(image.news_id, []);
+        imagesByNewsId.get(image.news_id).push(image);
+    }
+
+    const payload = buildNewspaperPayload({
+        targetUser,
+        articles,
+        imagesByNewsId,
+        baseUrl,
+        leadNewsId: null
+    });
+    payload.meta = {
+        ...(payload.meta || {}),
+        source: 'NMS_BULK_RECENT_MIXED',
+        window_hours: BULK_PDF_WINDOW_HOURS,
+        raw_count: rawRows.length,
+        ai_count: aiRows.length
+    };
+
+    insertPageMintBundleRecord({ targetUser, newsIds, payload, leadNewsId: null });
+    runPageMintBundleJob({ targetUser, payload, newsIds, placeholders });
+
+    return {
+        skipped: false,
+        raw_count: rawRows.length,
+        ai_count: aiRows.length,
+        total_count: newsIds.length,
+        job_id: payload.job_id,
+        bundle_id: payload.bundle_id
+    };
+}
+
+async function waitForPageMintPdf(jobId, startedAtMs) {
+    while (Date.now() - startedAtMs < BULK_PDF_WAIT_TIMEOUT_MS) {
+        const bundle = queryGet(
+            `SELECT delivery_status, pdf_received_at, error_message
+             FROM pagemint_bundles
+             WHERE job_id = ?`,
+            [jobId]
+        );
+        if (bundle?.pdf_received_at) return { received: true };
+        if (bundle?.delivery_status === 'failed') {
+            return { received: false, error: bundle.error_message || 'PageMint delivery failed.' };
+        }
+        await sleep(BULK_PDF_POLL_MS);
+    }
+    return { received: false, error: 'Timed out waiting for PageMint PDF.' };
+}
+
+function summarizeBulkQueue(queue) {
+    const now = Date.now();
+    const completedItems = queue.items.filter(item => ['received', 'skipped', 'failed'].includes(item.status)).length;
+    return {
+        id: queue.id,
+        status: queue.status,
+        total: queue.items.length,
+        completed: completedItems,
+        current_index: queue.currentIndex,
+        percent: queue.items.length ? Math.round((completedItems / queue.items.length) * 100) : 0,
+        elapsed_seconds: Math.max(0, Math.floor((now - queue.startedAtMs) / 1000)),
+        window_hours: BULK_PDF_WINDOW_HOURS,
+        items: queue.items,
+        error: queue.error || null
+    };
+}
+
+async function runBulkPdfQueue(queue, { editorUserId, baseUrl }) {
+    queue.status = 'running';
+    try {
+        for (let index = 0; index < queue.items.length; index += 1) {
+            const item = queue.items[index];
+            queue.currentIndex = index;
+            item.status = 'starting';
+            item.started_at = new Date().toISOString();
+
+            try {
+                const targetUser = getApiTargetOrThrow(item.target_user_id);
+                item.target_name = targetUser.full_name;
+                const result = await startRecentMixedPageMintBundle({ targetUser, editorUserId, baseUrl });
+                item.raw_count = result.raw_count || 0;
+                item.ai_count = result.ai_count || 0;
+                item.total_count = result.total_count || 0;
+
+                if (result.skipped) {
+                    item.status = 'skipped';
+                    item.message = result.message;
+                    item.finished_at = new Date().toISOString();
+                    continue;
+                }
+
+                item.job_id = result.job_id;
+                item.bundle_id = result.bundle_id;
+                item.status = 'waiting_pdf';
+
+                const waitResult = await waitForPageMintPdf(result.job_id, Date.now());
+                item.finished_at = new Date().toISOString();
+                if (waitResult.received) {
+                    item.status = 'received';
+                } else {
+                    item.status = 'failed';
+                    item.error = waitResult.error;
+                }
+            } catch (err) {
+                item.status = 'failed';
+                item.error = err.message || String(err);
+                item.finished_at = new Date().toISOString();
+            }
+        }
+        queue.status = 'completed';
+    } catch (err) {
+        queue.status = 'failed';
+        queue.error = err.message || String(err);
+    } finally {
+        queue.finishedAtMs = Date.now();
+        if (activeBulkPdfQueueId === queue.id) activeBulkPdfQueueId = null;
+    }
 }
 
 /**
@@ -573,8 +876,18 @@ router.get('/api-targets', (req, res) => {
                   AND TRIM(n.body_rewritten) != ''
             `, params)?.c || 0;
             const rawCount = countApiTargetRawNews(target);
+            const recentRawCount = countApiTargetRecentRawNews(target);
+            const recentAiCount = countApiTargetRecentAiNews(target);
             const pdfCount = queryGet('SELECT COUNT(*) as c FROM api_pdfs WHERE target_user_id = ?', [target.id])?.c || 0;
-            return { ...target, processed_rewritten_count: count, raw_news_count: rawCount, pdf_count: pdfCount };
+            return {
+                ...target,
+                processed_rewritten_count: count,
+                raw_news_count: rawCount,
+                recent_raw_news_count: recentRawCount,
+                recent_processed_rewritten_count: recentAiCount,
+                bulk_window_hours: BULK_PDF_WINDOW_HOURS,
+                pdf_count: pdfCount
+            };
         });
         res.json({ targets: targetsWithCounts });
     } catch (err) {
@@ -634,6 +947,67 @@ router.get('/api-targets/:id/news', (req, res) => {
         console.error('Editor get api target news error:', err);
         res.status(500).json({ error: 'Failed to fetch news.' });
     }
+});
+
+router.post('/newspaper-generator/bulk-recent', (req, res) => {
+    try {
+        if (activeBulkPdfQueueId) {
+            const activeQueue = bulkPdfQueues.get(activeBulkPdfQueueId);
+            if (activeQueue && activeQueue.status === 'running') {
+                return res.status(409).json({
+                    error: 'A bulk PDF queue is already running.',
+                    queue: summarizeBulkQueue(activeQueue)
+                });
+            }
+            activeBulkPdfQueueId = null;
+        }
+
+        const targetIds = Array.isArray(req.body.target_user_ids)
+            ? req.body.target_user_ids.map(Number).filter(id => Number.isInteger(id) && id > 0)
+            : [];
+        const uniqueTargetIds = [...new Set(targetIds)];
+        if (uniqueTargetIds.length < 1) {
+            return res.status(400).json({ error: 'Select at least one API target.' });
+        }
+
+        const targets = uniqueTargetIds.map(id => getApiTargetOrThrow(id));
+        const queue = {
+            id: uuidv4(),
+            status: 'queued',
+            startedAtMs: Date.now(),
+            currentIndex: 0,
+            items: targets.map(target => ({
+                target_user_id: target.id,
+                target_name: target.full_name,
+                role: target.role,
+                status: 'queued',
+                raw_count: null,
+                ai_count: null,
+                total_count: null,
+                job_id: null,
+                bundle_id: null,
+                error: null
+            }))
+        };
+
+        bulkPdfQueues.set(queue.id, queue);
+        activeBulkPdfQueueId = queue.id;
+        runBulkPdfQueue(queue, {
+            editorUserId: req.user.id,
+            baseUrl: getBaseUrl(req)
+        });
+
+        res.json({ success: true, queue: summarizeBulkQueue(queue) });
+    } catch (err) {
+        console.error('Bulk recent PDF queue start error:', err);
+        res.status(err.statusCode || 500).json({ error: err.message || 'Failed to start bulk PDF queue.' });
+    }
+});
+
+router.get('/newspaper-generator/bulk-recent/:id', (req, res) => {
+    const queue = bulkPdfQueues.get(req.params.id);
+    if (!queue) return res.status(404).json({ error: 'Bulk PDF queue not found.' });
+    res.json({ queue: summarizeBulkQueue(queue) });
 });
 
 router.get('/api-targets/:id/pdfs', (req, res) => {

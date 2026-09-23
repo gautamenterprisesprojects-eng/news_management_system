@@ -1986,6 +1986,9 @@ let _apiNewsSort = 'latest';
 let _apiPdfPollTimer = null;
 let _apiPdfElapsedTimer = null;
 let _apiPdfWaitStartedAt = 0;
+let _selectedBulkApiTargets = new Set();
+let _bulkApiQueueId = null;
+let _bulkApiPollTimer = null;
 
 // Clears the (currently unused) PDF-wait polling timers and hides the wait
 // status box. Was being called from backToApiTargets() without ever having
@@ -2028,6 +2031,18 @@ function renderEditorApiScreen() {
             
             <div id="apiTargetsSelection" style="padding: 16px;">
                 <h4 style="margin-bottom:12px; color:var(--text-secondary);">सब-एडिटर / API रिपोर्टर चुनें</h4>
+                <div class="card" style="padding:12px 14px; margin-bottom:12px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                        <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; color:var(--text-secondary);">
+                            <input type="checkbox" id="bulkApiSelectAll" onchange="toggleBulkApiTargets(this.checked)">
+                            <span>सभी उपलब्ध यूज़र चुनें</span>
+                        </label>
+                        <button type="button" class="btn btn-primary btn-sm" id="bulkApiGenerateBtn" onclick="startBulkApiPdfQueue()" disabled style="background:var(--accent-green,#16a34a); border-color:var(--accent-green,#16a34a);">
+                            ${icon('send', 12)} चुने हुए PDF बनाएं (0)
+                        </button>
+                    </div>
+                    <div id="bulkApiQueueStatus" class="api-bundle-wait hidden" style="margin-top:10px;"></div>
+                </div>
                 <div id="apiTargetsList" class="user-list" style="display: flex; flex-direction: column; gap: 10px;">
                     <div class="loading-spinner"></div>
                 </div>
@@ -2079,6 +2094,11 @@ async function loadApiTargets() {
             container.innerHTML = `<div class="empty-state"><div class="empty-text">कोई API इनेबल्ड व्यक्ति नहीं मिला</div></div>`;
             return;
         }
+        const availableTargetIds = new Set(_apiTargets
+            .filter(t => Number(t.recent_raw_news_count || 0) + Number(t.recent_processed_rewritten_count || 0) > 0)
+            .map(t => Number(t.id)));
+        _selectedBulkApiTargets = new Set([..._selectedBulkApiTargets].filter(id => availableTargetIds.has(Number(id))));
+        updateBulkApiSelectionToolbar();
 
         container.innerHTML = _apiTargets.map(t => {
             const avatarHtml = t.avatar_path 
@@ -2087,8 +2107,14 @@ async function loadApiTargets() {
             
             const count = Number(t.processed_rewritten_count || 0);
             const rawCount = Number(t.raw_news_count || 0);
+            const recentCount = Number(t.recent_processed_rewritten_count || 0);
+            const recentRawCount = Number(t.recent_raw_news_count || 0);
+            const hasNews = recentRawCount + recentCount > 0;
+            const isSelected = _selectedBulkApiTargets.has(Number(t.id));
             return `
             <div class="card" style="display:flex; align-items:center; gap:16px; cursor:pointer; padding: 12px 16px; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='var(--card-bg)'" onclick="selectApiTarget(${t.id}, '${escapeHtml(t.full_name)}')">
+                <input type="checkbox" id="bulk-api-target-${t.id}" style="width:18px; height:18px; flex-shrink:0;" ${isSelected ? 'checked' : ''} ${hasNews ? '' : 'disabled'}
+                    onclick="event.stopPropagation(); toggleBulkApiTarget(${t.id}, this.checked)">
                 ${avatarHtml}
                 <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
                     <div style="font-weight:600; font-size:1.1rem; color:var(--text-primary);">${escapeHtml(t.full_name)}</div>
@@ -2100,11 +2126,15 @@ async function loadApiTargets() {
                         <span style="margin: 0 6px;">•</span>
                         AI rewritten: <strong style="color:${count > 0 ? 'var(--accent-green)' : 'inherit'}">${count}</strong>
                     </div>
+                    <div style="font-size:0.78rem; color:${hasNews ? 'var(--accent-green)' : 'var(--text-secondary)'}; margin-top:3px;">
+                        23h bundle: RAW ${recentRawCount} + AI ${recentCount}
+                    </div>
                 </div>
                 <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
                     <button type="button" class="btn btn-primary btn-xs" style="white-space:nowrap; background:var(--accent-green,#16a34a); border-color:var(--accent-green,#16a34a);"
                         onclick="event.stopPropagation(); generateApiPdfForTarget(${t.id}, '${escapeHtml(t.full_name)}', this)"
-                        title="आज (24hr) की सभी RAW + AI rewritten खबरें एक साथ PageMint भेजें">
+                        ${hasNews ? '' : 'disabled'}
+                        title="पिछले 23 घंटे की सभी RAW + AI rewritten खबरें एक PDF में PageMint भेजें">
                         ${icon('send', 12)} PDF जनरेट करें
                     </button>
                     ${icon('chevron-right', 18)}
@@ -2116,81 +2146,184 @@ async function loadApiTargets() {
     }
 }
 
-/**
- * One-click shortcut from the target list: pulls today's (आज / under-24h)
- * RAW and AI-rewritten news for this target and sends whichever of the two
- * bundles are non-empty to PageMint -- the same two API calls
- * sendApiBothNewspaperBundles() makes after a manual selection, just without
- * having to open the target and select every card by hand first.
- */
-async function generateApiPdfForTarget(targetId, targetName, buttonEl) {
-    if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'लोड हो रहा है...'; }
+function formatBulkElapsed(seconds) {
+    const safe = Math.max(0, Number(seconds) || 0);
+    const mins = Math.floor(safe / 60);
+    const secs = safe % 60;
+    if (mins < 1) return `${secs}s`;
+    return `${mins}m ${secs}s`;
+}
 
-    let rawToday = [];
-    let aiToday = [];
+function getBulkApiSelectableTargetIds() {
+    return _apiTargets
+        .filter(t => Number(t.recent_raw_news_count || 0) + Number(t.recent_processed_rewritten_count || 0) > 0)
+        .map(t => Number(t.id));
+}
+
+function updateBulkApiSelectionToolbar() {
+    const btn = document.getElementById('bulkApiGenerateBtn');
+    if (btn) {
+        btn.disabled = _selectedBulkApiTargets.size < 1 || Boolean(_bulkApiQueueId);
+        btn.innerHTML = `${icon('send', 12)} चुने हुए PDF बनाएं (${_selectedBulkApiTargets.size})`;
+    }
+    const selectAll = document.getElementById('bulkApiSelectAll');
+    if (selectAll) {
+        const selectable = getBulkApiSelectableTargetIds();
+        selectAll.checked = selectable.length > 0 && selectable.every(id => _selectedBulkApiTargets.has(id));
+        selectAll.disabled = selectable.length === 0 || Boolean(_bulkApiQueueId);
+    }
+}
+
+function toggleBulkApiTarget(id, checked) {
+    const targetId = Number(id);
+    if (checked) _selectedBulkApiTargets.add(targetId);
+    else _selectedBulkApiTargets.delete(targetId);
+    updateBulkApiSelectionToolbar();
+}
+
+function toggleBulkApiTargets(checked) {
+    const selectable = getBulkApiSelectableTargetIds();
+    if (checked) selectable.forEach(id => _selectedBulkApiTargets.add(id));
+    else selectable.forEach(id => _selectedBulkApiTargets.delete(id));
+    selectable.forEach(id => {
+        const checkbox = document.getElementById(`bulk-api-target-${id}`);
+        if (checkbox) checkbox.checked = checked;
+    });
+    updateBulkApiSelectionToolbar();
+}
+
+function bulkApiItemStatusLabel(item) {
+    const label = {
+        queued: 'लाइन में',
+        starting: 'शुरू हो रहा है',
+        waiting_pdf: 'PDF का इंतज़ार',
+        received: 'PDF मिल गई',
+        skipped: 'कोई 23h खबर नहीं',
+        failed: 'समस्या'
+    }[item.status] || item.status || 'लाइन में';
+    const countText = item.raw_count == null
+        ? ''
+        : ` · RAW ${item.raw_count || 0} + AI ${item.ai_count || 0}`;
+    return `${label}${countText}`;
+}
+
+function renderBulkApiQueueStatus(queue) {
+    const box = document.getElementById('bulkApiQueueStatus');
+    if (!box || !queue) return;
+    box.classList.remove('hidden');
+    const itemsHtml = (queue.items || []).map(item => {
+        const color = item.status === 'received'
+            ? 'var(--accent-green,#16a34a)'
+            : item.status === 'failed'
+                ? 'var(--accent-red,#dc2626)'
+                : item.status === 'skipped'
+                    ? 'var(--text-secondary)'
+                    : 'var(--accent-orange,#f97316)';
+        return `
+            <div style="display:flex; justify-content:space-between; gap:10px; font-size:12px; padding:3px 0; border-top:1px solid rgba(148,163,184,0.18);">
+                <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.target_name || `User #${item.target_user_id}`)}</span>
+                <span style="color:${color}; flex-shrink:0;">${escapeHtml(bulkApiItemStatusLabel(item))}</span>
+            </div>
+        `;
+    }).join('');
+    box.innerHTML = `
+        <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; font-size:13px; font-weight:600;">
+            <span>Bulk PDF progress: ${queue.percent || 0}%</span>
+            <span>${queue.completed || 0}/${queue.total || 0} · ${formatBulkElapsed(queue.elapsed_seconds || 0)}</span>
+        </div>
+        <div style="height:6px; background:rgba(148,163,184,0.25); border-radius:999px; overflow:hidden; margin:8px 0;">
+            <div style="width:${Math.max(0, Math.min(100, Number(queue.percent) || 0))}%; height:100%; background:var(--accent-green,#16a34a);"></div>
+        </div>
+        ${itemsHtml}
+    `;
+}
+
+function stopBulkApiQueuePolling() {
+    if (_bulkApiPollTimer) {
+        clearInterval(_bulkApiPollTimer);
+        _bulkApiPollTimer = null;
+    }
+}
+
+async function pollBulkApiQueueStatus() {
+    if (!_bulkApiQueueId) return;
     try {
-        const data = await api(`/editor/api-targets/${targetId}/news?sort=latest`);
-        rawToday = (data.raw_news || []).filter(isApiNewsToday);
-        aiToday = (data.news || []).filter(isApiNewsToday);
+        const data = await api(`/editor/newspaper-generator/bulk-recent/${_bulkApiQueueId}`);
+        if (data.error) throw new Error(data.error);
+        const queue = data.queue;
+        renderBulkApiQueueStatus(queue);
+        if (queue.status !== 'running' && queue.status !== 'queued') {
+            stopBulkApiQueuePolling();
+            _bulkApiQueueId = null;
+            _selectedBulkApiTargets.clear();
+            updateBulkApiSelectionToolbar();
+            await loadApiTargets();
+            showToast(queue.status === 'completed' ? 'Bulk PDF process complete' : 'Bulk PDF process stopped', queue.status === 'completed' ? 'success' : 'error');
+        }
+    } catch (err) {
+        stopBulkApiQueuePolling();
+        _bulkApiQueueId = null;
+        updateBulkApiSelectionToolbar();
+        showToast(err.message || t('common.error'), 'error');
+    }
+}
+
+function startBulkApiPolling() {
+    stopBulkApiQueuePolling();
+    _bulkApiPollTimer = setInterval(pollBulkApiQueueStatus, 5000);
+}
+
+async function startBulkApiPdfQueue(targetIds = null) {
+    const ids = Array.isArray(targetIds) ? targetIds.map(Number).filter(Number.isInteger) : Array.from(_selectedBulkApiTargets);
+    if (ids.length < 1) {
+        showToast('कम से कम 1 API यूज़र चुनें', 'error');
+        return;
+    }
+    const targetNames = ids
+        .map(id => _apiTargets.find(t => Number(t.id) === Number(id))?.full_name)
+        .filter(Boolean);
+    const confirmText = targetNames.length === 1
+        ? `${targetNames[0]} के पिछले 23 घंटे की RAW + AI rewritten खबरों का एक PDF बनाना शुरू करें?`
+        : `${ids.length} यूज़र के पिछले 23 घंटे की RAW + AI rewritten खबरों के PDF एक-एक करके बनाने शुरू करें?`;
+    if (!confirm(confirmText)) return;
+
+    const btn = document.getElementById('bulkApiGenerateBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Bulk process शुरू हो रहा है...';
+    }
+    try {
+        const res = await api('/editor/newspaper-generator/bulk-recent', {
+            method: 'POST',
+            body: JSON.stringify({ target_user_ids: ids })
+        });
+        if (res.error) {
+            if (res.queue) renderBulkApiQueueStatus(res.queue);
+            showToast(res.error, 'error');
+            updateBulkApiSelectionToolbar();
+            return;
+        }
+        _bulkApiQueueId = res.queue.id;
+        renderBulkApiQueueStatus(res.queue);
+        updateBulkApiSelectionToolbar();
+        startBulkApiPolling();
+        showToast('Bulk PDF process शुरू हो गया', 'success');
     } catch (err) {
         showToast(t('common.error'), 'error');
-        if (buttonEl) { buttonEl.disabled = false; buttonEl.innerHTML = `${icon('send', 12)} PDF जनरेट करें`; }
-        return;
+        updateBulkApiSelectionToolbar();
     }
+}
 
-    if (rawToday.length === 0 && aiToday.length === 0) {
-        showToast(`${targetName} की आज (24hr) की कोई RAW या AI rewritten खबर उपलब्ध नहीं है`, 'error');
-        if (buttonEl) { buttonEl.disabled = false; buttonEl.innerHTML = `${icon('send', 12)} PDF जनरेट करें`; }
-        return;
+/**
+ * One-click shortcut from the target list: starts the same sequential bulk
+ * queue for a single target, producing one combined recent RAW+AI PDF.
+ */
+async function generateApiPdfForTarget(targetId, targetName, buttonEl) {
+    await startBulkApiPdfQueue([Number(targetId)]);
+    if (buttonEl && !_bulkApiQueueId) {
+        buttonEl.disabled = false;
+        buttonEl.innerHTML = `${icon('send', 12)} PDF जनरेट करें`;
     }
-
-    const parts = [];
-    if (rawToday.length > 0) parts.push(`${rawToday.length} RAW`);
-    if (aiToday.length > 0) parts.push(`${aiToday.length} AI rewritten`);
-    if (!confirm(`क्या आप ${targetName} की आज की ${parts.join(' + ')} खबरें PageMint को भेजना चाहते हैं?`)) {
-        if (buttonEl) { buttonEl.disabled = false; buttonEl.innerHTML = `${icon('send', 12)} PDF जनरेट करें`; }
-        return;
-    }
-
-    if (buttonEl) buttonEl.textContent = 'भेज रहा है...';
-
-    let rawOk = rawToday.length === 0;
-    let aiOk = aiToday.length === 0;
-    let firstError = null;
-
-    if (rawToday.length > 0) {
-        try {
-            const res = await api('/editor/newspaper-generator/raw-bundle', {
-                method: 'POST',
-                body: JSON.stringify({ target_user_id: targetId, news_ids: rawToday.map(n => n.id), lead_news_id: null })
-            });
-            if (res.error) firstError = res.error; else rawOk = true;
-        } catch (err) {
-            firstError = t('common.error');
-        }
-    }
-
-    if (aiToday.length > 0) {
-        try {
-            const res = await api('/editor/newspaper-generator/bundle', {
-                method: 'POST',
-                body: JSON.stringify({ target_user_id: targetId, news_ids: aiToday.map(n => n.id), lead_news_id: null })
-            });
-            if (res.error) firstError = firstError || res.error; else aiOk = true;
-        } catch (err) {
-            firstError = firstError || t('common.error');
-        }
-    }
-
-    if (rawOk && aiOk) {
-        showToast(`${targetName} की आज की ${parts.join(' + ')} खबरें भेज दी गईं`, 'success');
-    } else if (rawOk || aiOk) {
-        showToast(`एक बंडल भेज दिया गया, दूसरे में समस्या: ${firstError || ''}`, 'error');
-    } else {
-        showToast(firstError || t('common.error'), 'error');
-    }
-
-    await loadApiTargets();
 }
 
 function backToApiTargets() {
