@@ -632,37 +632,58 @@ async function runBulkPdfQueue(queue, { editorUserId, baseUrl }) {
             item.status = 'starting';
             item.started_at = new Date().toISOString();
 
-            try {
-                const targetUser = getApiTargetOrThrow(item.target_user_id);
-                item.target_name = targetUser.full_name;
-                const result = await startRecentMixedPageMintBundle({ targetUser, editorUserId, baseUrl });
-                item.raw_count = result.raw_count || 0;
-                item.ai_count = result.ai_count || 0;
-                item.total_count = result.total_count || 0;
+            let attempts = 0;
+            const maxAttempts = 3;
+            const retryDelayMs = 2 * 60 * 1000;
 
-                if (result.skipped) {
-                    item.status = 'skipped';
-                    item.message = result.message;
-                    item.finished_at = new Date().toISOString();
-                    continue;
+            while (attempts < maxAttempts) {
+                attempts++;
+                try {
+                    const targetUser = getApiTargetOrThrow(item.target_user_id);
+                    item.target_name = targetUser.full_name;
+                    const result = await startRecentMixedPageMintBundle({ targetUser, editorUserId, baseUrl });
+                    item.raw_count = result.raw_count || 0;
+                    item.ai_count = result.ai_count || 0;
+                    item.total_count = result.total_count || 0;
+
+                    if (result.skipped) {
+                        item.status = 'skipped';
+                        item.message = result.message;
+                        item.finished_at = new Date().toISOString();
+                        break;
+                    }
+
+                    item.job_id = result.job_id;
+                    item.bundle_id = result.bundle_id;
+                    item.status = 'waiting_pdf';
+
+                    const waitResult = await waitForPageMintPdf(result.job_id, Date.now());
+                    if (waitResult.received) {
+                        item.status = 'received';
+                        item.finished_at = new Date().toISOString();
+                        break;
+                    } else {
+                        item.error = waitResult.error;
+                        if (attempts < maxAttempts) {
+                            item.status = 'retrying';
+                            item.message = `Attempt ${attempts} failed. Retrying in 2 mins...`;
+                            await sleep(retryDelayMs);
+                        } else {
+                            item.status = 'failed';
+                            item.finished_at = new Date().toISOString();
+                        }
+                    }
+                } catch (err) {
+                    item.error = err.message || String(err);
+                    if (attempts < maxAttempts) {
+                        item.status = 'retrying';
+                        item.message = `Attempt ${attempts} failed. Retrying in 2 mins...`;
+                        await sleep(retryDelayMs);
+                    } else {
+                        item.status = 'failed';
+                        item.finished_at = new Date().toISOString();
+                    }
                 }
-
-                item.job_id = result.job_id;
-                item.bundle_id = result.bundle_id;
-                item.status = 'waiting_pdf';
-
-                const waitResult = await waitForPageMintPdf(result.job_id, Date.now());
-                item.finished_at = new Date().toISOString();
-                if (waitResult.received) {
-                    item.status = 'received';
-                } else {
-                    item.status = 'failed';
-                    item.error = waitResult.error;
-                }
-            } catch (err) {
-                item.status = 'failed';
-                item.error = err.message || String(err);
-                item.finished_at = new Date().toISOString();
             }
         }
         queue.status = 'completed';
