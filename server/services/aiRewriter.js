@@ -216,9 +216,9 @@ async function rewriteArticle(headline, body, options = {}) {
     });
 
     if (activeProvider === 'gemini') {
-        const apiKey = getSettingValue('gemini_api_key') || process.env.GEMINI_API_KEY;
-        const model = getSettingValue('gemini_model') || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
-        return await rewriteWithGemini(fullPrompt, apiKey, model);
+        const apiKeys = collectGeminiApiKeys(getSettingValue('gemini_api_key'));
+        const models = collectGeminiModels(getSettingValue('gemini_model'));
+        return await rewriteWithGemini(fullPrompt, apiKeys, models);
     } else if (activeProvider === 'deepseek') {
         const apiKey = getSettingValue('deepseek_api_key') || process.env.DEEPSEEK_API_KEY;
         return await rewriteWithDeepSeek(fullPrompt, apiKey);
@@ -227,42 +227,116 @@ async function rewriteArticle(headline, body, options = {}) {
     }
 }
 
+function splitList(value) {
+    return String(value || '')
+        .split(/[\n,;]+/)
+        .map(item => item.trim())
+        .filter(Boolean);
+}
+
+function uniqueList(values) {
+    const seen = new Set();
+    const unique = [];
+    for (const value of values) {
+        const key = String(value || '').trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        unique.push(key);
+    }
+    return unique;
+}
+
+function collectGeminiApiKeys(settingValue = '') {
+    return uniqueList([
+        ...splitList(settingValue),
+        ...splitList(process.env.GEMINI_API_KEYS),
+        process.env.GEMINI_API_KEY_1,
+        process.env.GEMINI_API_KEY_2,
+        process.env.GEMINI_API_KEY_3,
+        process.env.GEMINI_API_KEY
+    ]);
+}
+
+function collectGeminiModels(settingValue = '') {
+    return uniqueList([
+        ...splitList(settingValue),
+        ...splitList(process.env.GEMINI_MODELS),
+        process.env.GEMINI_MODEL,
+        'gemini-3.1-flash-lite',
+        'gemini-2.5-flash-lite',
+        'gemini-2.5-flash'
+    ]);
+}
+
+function isRetryableGeminiStatus(status) {
+    return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function summarizeGeminiError(errorText) {
+    try {
+        const parsed = JSON.parse(errorText);
+        return parsed?.error?.message || errorText;
+    } catch (_) {
+        return errorText;
+    }
+}
+
 /**
  * Rewrite using Google Gemini API
  */
-async function rewriteWithGemini(prompt, apiKey, model = 'gemini-3.1-flash-lite') {
-    if (!apiKey) {
+async function rewriteWithGemini(prompt, apiKeys, models = ['gemini-3.1-flash-lite']) {
+    const keys = Array.isArray(apiKeys) ? apiKeys.filter(Boolean) : splitList(apiKeys);
+    const modelList = Array.isArray(models) ? models.filter(Boolean) : splitList(models);
+    if (keys.length < 1) {
         throw new Error('Gemini API key not configured. Go to Admin → Settings to add it.');
     }
 
-    const cleanModel = model.replace(/^models\//, '');
-    const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: {
-                    temperature: 0.7,
-                    maxOutputTokens: 4096,
+    const errors = [];
+    for (const model of modelList) {
+        const cleanModel = model.replace(/^models\//, '');
+        for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+            const apiKey = keys[keyIndex];
+            try {
+                const response = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }],
+                            generationConfig: {
+                                temperature: 0.7,
+                                maxOutputTokens: 4096,
+                            }
+                        })
+                    }
+                );
+
+                if (!response.ok) {
+                    const errData = await response.text();
+                    const reason = summarizeGeminiError(errData);
+                    errors.push(`${cleanModel}/key${keyIndex + 1}: ${response.status} ${reason}`);
+                    if (isRetryableGeminiStatus(response.status) || keys.length > 1 || modelList.length > 1) {
+                        continue;
+                    }
+                    throw new Error(`Gemini API error (${response.status}): ${reason}`);
                 }
-            })
+
+                const data = await response.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) {
+                    errors.push(`${cleanModel}/key${keyIndex + 1}: empty response`);
+                    continue;
+                }
+
+                return parseAIResponse(text);
+            } catch (err) {
+                errors.push(`${cleanModel}/key${keyIndex + 1}: ${err.message || String(err)}`);
+            }
         }
-    );
-
-    if (!response.ok) {
-        const errData = await response.text();
-        throw new Error(`Gemini API error (${response.status}): ${errData}`);
     }
 
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-        throw new Error('Gemini returned empty response');
-    }
-
-    return parseAIResponse(text);
+    throw new Error(`Gemini API failed after trying ${keys.length} key(s) and ${modelList.length} model(s): ${errors.slice(-4).join(' | ')}`);
 }
 
 /**
